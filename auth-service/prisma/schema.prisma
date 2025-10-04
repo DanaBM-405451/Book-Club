@@ -1,0 +1,71 @@
+// =====================================================
+// AUTH_BD - auth-service/prisma/schema.prisma
+// Base de datos SOLO para autenticación
+// =====================================================
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// Tabla de usuarios SOLO para auth
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique @db.VarChar(255)
+  username        String    @unique @db.VarChar(50)
+  password        String    @db.VarChar(255) // Hash bcrypt
+  role            Role      @default(USER)
+  
+  // Control de cuenta
+  isActive        Boolean   @default(true) @map("is_active")
+  emailVerified   Boolean   @default(false) @map("email_verified")
+  
+  // Timestamps Trigger
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  lastLoginAt     DateTime? @map("last_login_at")
+  
+  // Relaciones
+  refreshTokens   RefreshToken[]
+
+  @@index([email])
+  @@index([username])
+  @@map("users")
+}
+
+// Tabla de refresh tokens jwt
+model RefreshToken {
+  id              String    @id @default(uuid())
+  token           String    @unique @db.VarChar(500)
+  userId          String    @map("user_id")
+  expiresAt       DateTime  @map("expires_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  isRevoked       Boolean   @default(false) @map("is_revoked")
+  
+  // Relaciones
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// Tabla de roles
+model RolePermiso {
+  id              Int       @id @default(autoincrement())
+  role            Role
+  permiso     String    @db.VarChar(100)
+  
+  @@unique([role, permiso])
+  @@map("role_permiso")
+}
+
+enum Role {
+  USER
+  ADMIN
+  MODERATOR
+}

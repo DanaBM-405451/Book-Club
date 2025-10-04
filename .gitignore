@@ -1,0 +1,32 @@
+#Variables del entornos (por tema de compatibilidad de versiones)
+.env
+.env.local
+
+#Dependencias que voy a usar 
+node_modules/
+*/node_modules/
+
+#Logs(registros de errores)
+*.log
+logs/
+
+# Next.js
+.netx/
+out/
+
+# Docker
+*.log
+
+# OS (para guardar metadatos)
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# Testing
+coverage/
+
+# Uploads
+uploads/

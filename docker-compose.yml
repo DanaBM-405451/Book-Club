@@ -1,0 +1,298 @@
+version: '3.8'
+
+services:
+  # =====================================================
+  # BASES DE DATOS MYSQL
+  # =====================================================
+  
+  # Auth Database
+  auth-db:
+    image: mysql:8.0
+    container_name: book-club-auth-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: auth_db
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3307:3306"  #3306 es INTERNO
+    volumes:
+      - auth_db_data:/var/lib/mysql
+    networks:
+      - book-club-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    #LÍMITES DE RECURSOS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'      # Máximo 50% de 1 CPU
+          memory: 512M     # Máximo 512MB RAM
+        reservations:
+          cpus: '0.25'     # Mínimo garantizado 25% CPU
+          memory: 256M     # Mínimo garantizado 256MB RAM
+
+  # User Database
+  user-db:
+    image: mysql:8.0
+    container_name: book-club-user-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: user_db
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3308:3306"  #Puerto externo 3308, interno 3306
+    volumes:
+      - user_db_data:/var/lib/mysql
+    networks:
+      - book-club-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    #LÍMITES DE RECURSOS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # Library Database
+  library-db:
+    image: mysql:8.0
+    container_name: book-club-library-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: library_db
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3309:3306"  #Puerto externo 3309, interno 3306
+    volumes:
+      - library_db_data:/var/lib/mysql
+    networks:
+      - book-club-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    #LÍMITES DE RECURSOS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # =====================================================
+  # MICROSERVICIOS
+  # =====================================================
+
+  # Auth Service
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: book-club-auth-service
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - PORT=3001
+      - DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@auth-db:3306/auth_db  
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN}
+      - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN}
+    depends_on:
+    
+      auth-db:
+        condition: service_healthy
+    networks:
+      - book-club-network
+    volumes:
+      - ./auth-service:/app
+      - /app/node_modules
+    command: npm run dev
+    #LÍMITES DE RECURSOS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # User Service
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    container_name: book-club-user-service
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - PORT=3002
+      - DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@user-db:3306/user_db  
+      - JWT_SECRET=${JWT_SECRET}
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
+    depends_on:
+      user-db:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    networks:
+      - book-club-network
+    volumes:
+      - ./user-service:/app
+      - /app/node_modules
+    command: npm run dev
+    #LÍMITES DE RECURSOS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # Library Service
+  library-service:
+    build:
+      context: ./library-service
+      dockerfile: Dockerfile
+    container_name: book-club-library-service
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - PORT=3003
+      - DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@library-db:3306/library_db  # ✅ CORREGIDO: 3306
+      - JWT_SECRET=${JWT_SECRET}
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
+      - GOOGLE_BOOKS_API_KEY=${GOOGLE_BOOKS_API_KEY}
+    depends_on:
+      library-db:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    networks:
+      - book-club-network
+    volumes:
+      - ./library-service:/app
+      - /app/node_modules
+    command: npm run dev
+    # LÍMITES DE RECURSOS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # =====================================================
+  # API GATEWAY
+  # =====================================================
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: book-club-api-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"  
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - PORT=8080
+      - JWT_SECRET=${JWT_SECRET}
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - USER_SERVICE_URL=http://user-service:3002
+      - LIBRARY_SERVICE_URL=http://library-service:3003
+      - CORS_ORIGIN=${CORS_ORIGIN}
+    depends_on:
+      - auth-service
+      - user-service
+      - library-service
+    networks:
+      - book-club-network
+    volumes:
+      - ./api-gateway:/app
+      - /app/node_modules
+    command: npm run dev
+
+  # =====================================================
+  # FRONTEND
+  # =====================================================
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+    container_name: book-club-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - NEXT_PUBLIC_API_URL=http://localhost:8080  # ✅ Apunta al gateway
+      - NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+    depends_on:
+      - api-gateway
+    networks:
+      - book-club-network
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
+
+# =====================================================
+# VOLÚMENES
+# =====================================================
+volumes:
+  auth_db_data:
+    driver: local
+  user_db_data:  
+    driver: local
+  library_db_data: 
+    driver: local
+
+# =====================================================
+# REDES
+# =====================================================
+networks:
+  book-club-network:
+    driver: bridge

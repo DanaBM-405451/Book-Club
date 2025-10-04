@@ -1,0 +1,36 @@
+Usaremos el patron gateway, donde filtrara a que servicio debe llamar
+y a donde se debe dirigir.
+
+# api-gateway/Dockerfile (development)
+FROM node:18-alpine
+
+WORKDIR /app
+
+# copiar package-lock y package.json para instalar deps
+COPY package*.json ./
+
+# Instala devDeps también (útil para nodemon)
+RUN npm install
+
+# Copiamos el resto del código
+COPY . .
+
+
+# comando para dev (asegurate que "dev" use nodemon en package.json)
+CMD ["npm", "run", "dev"]
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+
+RUN addgroup -g 1001 -S nodejs && adduser -S gatewayuser -u 1001
+RUN chown -R gatewayuser:nodejs /app
+USER gatewayuser
+
+EXPOSE 8080
+
+CMD ["npm", "run", "dev"]

@@ -1,0 +1,228 @@
+// =====================================================
+// LIBRARY_BD - library-service/prisma/schema.prisma
+// (Tu schema actual con correcciones)
+// =====================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+
+}
+
+model Book {
+  id              Int       @id @default(autoincrement())
+  
+  // Origen del libro
+  source          BookSource @default(MANUAL)
+  googleBookId    String?   @unique @map("google_book_id")
+  
+  // Información básica
+  isbn10          String?   @unique
+  isbn13          String?   @unique
+  titulo          String    @db.VarChar(500)
+  subtitulo       String?   @db.VarChar(500)
+  
+  
+  autor              String    @db.Text //  ejemplo: "Gabriel García Márquez, Otro Autor"
+  
+  publicacion        String?   @db.VarChar(255)
+  fechaPublicacion   String?   @map("published_date")
+  descripcion        String?   @db.Text
+  pageCount          Int?      @map("page_count")
+  
+  
+  categorias      String?   @db.Text // "Ficcion, Fantasia, Adventura, etc"
+  
+  idioma          String?   @db.VarChar(10) @default("es")
+  
+  // Archivos
+  coverImageUrl   String?   @map("cover_image_url") @db.VarChar(1000)
+  pdfFileUrl      String?   @map("pdf_file_url") @db.VarChar(1000)
+  epubFileUrl     String?   @map("epub_file_url") @db.VarChar(1000)
+  
+  // Google Books metadata
+  thumbnail       String?   @db.VarChar(1000)
+  previewLink     String?   @map("preview_link") @db.VarChar(1000)
+  averageRating   Decimal?  @map("average_rating") @db.Decimal(3, 2)
+  ratingsCount    Int?      @map("ratings_count") @default(0)
+  
+  // Control
+  uploadedByUserId String?  @map("uploaded_by_user_id")
+  isPublic        Boolean   @default(true) @map("is_public")
+  
+  
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+  deletedAt       DateTime? @map("deleted_at")
+  
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Relaciones
+  userBooks       UserBook[]
+  groupBooks      GroupBook[]
+  notes           Note[]
+
+  @@index([titulo])
+  @@index([googleBookId])
+  @@index([uploadedByUserId])
+  @@index([isPublic])
+  @@index([isDeleted])
+  @@map("books")
+}
+
+model GroupBook {
+  id              Int       @id @default(autoincrement())
+  groupId         String    @map("group_id") // UUID del grupo
+  bookId          Int       @map("book_id")
+  
+  addedByUserId   String    @map("added_by_user_id")
+  status          GroupBookStatus @default(SUGGESTED)
+  
+  // Programación de lectura
+  startDate       DateTime? @map("start_date")
+  endDate         DateTime? @map("end_date")
+  targetPagesPerDay Int?    @map("target_pages_per_day")
+  
+  // Estadísticas
+  membersReading  Int       @default(0) @map("members_reading")
+  membersFinished Int       @default(0) @map("members_finished")
+  
+  addedAt         DateTime  @default(now()) @map("added_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Relaciones
+  book            Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, bookId])
+  @@index([groupId])
+  @@index([status])
+  @@map("group_books")
+}
+
+model UserBook {
+  id              Int       @id @default(autoincrement())
+  userId          String    @map("user_id") // UUID del usuario
+  bookId          Int       @map("book_id")
+  
+  // Estado de lectura
+  status          ReadingStatus @default(QUIERO_LEER)
+  
+  // Progreso
+  currentPage     Int       @default(0) @map("current_page")
+  totalPages      Int       @map("total_pages")
+  progressPercent Decimal   @default(0) @map("progress_percent") @db.Decimal(5, 2)
+  
+  // Calificación personal (1-5, permite .5)
+  rating          Decimal?  @db.Decimal(2, 1) // 4.5
+  isFavorite      Boolean   @default(false) @map("is_favorite")
+  
+  // ✅ CORREGIDO: String en vez de JSON
+  tags            String?   @db.Text // "thriller, verano-2024, pendiente"
+  
+  // Fechas
+  startedAt       DateTime? @map("started_at")
+  finishedAt      DateTime? @map("finished_at")
+  addedAt         DateTime  @default(now()) @map("added_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Relaciones
+  book            Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  notes           Note[]
+  readingLogs     ReadingLog[]
+
+  @@unique([userId, bookId])
+  @@index([userId])
+  @@index([status])
+  @@index([rating])
+  @@map("user_books")
+}
+
+model Note {
+  id              Int       @id @default(autoincrement())
+  userId          String    @map("user_id")
+  bookId          Int       @map("book_id")
+  userBookId      Int       @map("user_book_id")
+  
+  title           String?   @db.VarChar(255)
+  content         String    @db.Text
+  
+  // Ubicación
+  page            Int?
+  chapter         String?   @db.VarChar(255)
+  
+  type            NoteType  @default(NOTE)
+  isPublic        Boolean   @default(false) @map("is_public")
+  
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  book            Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  userBook        UserBook  @relation(fields: [userBookId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userBookId])
+  @@index([type])
+  @@map("notes")
+}
+
+model ReadingLog {
+  id              Int       @id @default(autoincrement())
+  userId          String    @map("user_id")
+  userBookId      Int       @map("user_book_id")
+  
+  pagesRead       Int       @map("pages_read")
+  fromPage        Int       @map("from_page")
+  toPage          Int       @map("to_page")
+  
+  durationMinutes Int?      @map("duration_minutes")
+  
+  // Para el service de analisis 
+  deviceType      String?   @map("device_type") @db.VarChar(50)
+  
+  readAt          DateTime  @default(now()) @map("read_at")
+  
+  userBook        UserBook  @relation(fields: [userBookId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userBookId])
+  @@index([readAt])
+  @@map("reading_logs")
+}
+
+// Enums
+enum ReadingStatus {
+  QUIERO_LEER
+  LEYENDO
+  COMPLETADO
+  EN_ESPERA
+  ABANDONADO
+}
+
+enum NoteType {
+  NOTE
+  HIGHLIGHT
+  REVIEW
+  THOUGHT
+}
+
+enum BookSource {
+  GOOGLE_BOOKS
+  MANUAL
+  ISBN
+  COMMUNITY
+  PDF
+  EPUB
+}
+
+enum GroupBookStatus {
+  SUGGESTED
+  SELECTED
+  READING
+  COMPLETED
+  ARCHIVED
+}

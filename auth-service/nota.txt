@@ -1,0 +1,45 @@
+En este servicio Se hara el login, el registro de usuario y la separacion entre usuario comun y administrador
+Se creara la BD de usuario
+Se creara toda la logica del backend
+
+
+# auth-service/Dockerfile (dev)
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Instalar dependencias para Prisma
+RUN apk add --no-cache openssl
+
+# Copiar archivos necesarios para instalar dependencias
+COPY package*.json ./
+COPY prisma ./prisma/
+
+# Instalar dependencias (incluye devDeps para nodemon, prisma, etc.)
+RUN npm install
+
+# Generar Prisma client
+RUN npx prisma generate
+
+# Copiar el resto del código
+COPY . .
+
+# Crear usuario no-root
+RUN addgroup -g 1001 -S nodejs \
+ && adduser -S authuser -u 1001 -G nodejs \
+ && chown -R authuser:nodejs /app
+
+USER authuser
+
+# Puerto
+ENV PORT=3001
+EXPOSE 3001
+
+# Healthcheck opcional
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD wget -qO- http://localhost:${PORT}/health || exit 1
+
+CMD ["npm", "run", "dev"]
+
+
+
