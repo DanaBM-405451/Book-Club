@@ -18,16 +18,16 @@ model Profile {
   userId          String    @unique @map("user_id") // Referencia a User en auth-service
   
   // Información personal
-  nombre         String?   @map("first_name") @db.VarChar(100)
-  apellido       String?   @map("last_name") @db.VarChar(100)
-  nickName       String?   @map("display_name") @db.VarChar(150) // Nombre que se muestra
+  nombre         String?    @db.VarChar(100)
+  apellido       String?    @db.VarChar(100)
+  username       String?    @db.VarChar(150) // Nombre que se muestra
   bio            String?   @db.Text
   
   // Fecha de nacimiento
   birthDate       DateTime? @map("birth_date") @db.Date
   
   // Ubicación
-  pais         String?   @db.VarChar(100)
+  pais             String?   @db.VarChar(100)
   provincia        String?   @db.VarChar(100) // Estado/Provincia
   ciudad           String?   @db.VarChar(100)
   
@@ -43,11 +43,17 @@ model Profile {
   // Preferencias de lectura
   favoriteGeneros  String?   @map("favorite_generos") @db.Text // "Fantasy, Thriller, Romance"
   readingGoal      Int?      @map("reading_goal") // Libros por año
+  favoriteBookThisMonth  String?
+  totalBooksRead         Int      @default(0)
+  totalPagesRead         Int      @default(0)
+  totalReadingTime       Int      @default(0) // en minutos
   
   // Privacidad
   isProfilePublic Boolean   @default(true) @map("is_profile_public")
+  showLibrary            Boolean  @default(true)
   showLocation    Boolean   @default(false) @map("show_location")
   showStats       Boolean   @default(true) @map("show_stats")
+  showReadingActivity    Boolean  @default(true)
   
   // Timestamps
   createdAt       DateTime  @default(now()) @map("created_at")

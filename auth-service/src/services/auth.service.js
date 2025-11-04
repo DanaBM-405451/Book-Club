@@ -12,7 +12,7 @@ class AuthService {
   /**
    * Registrar nuevo usuario
    */
-  async register({ email, username, password }) {
+  async register({ email, username, password, nombre, apellido, edad, genero, pais, ciudad }) {
     // Verificar si email ya existe
     const existingEmail = await prisma.user.findUnique({
       where: { email }
@@ -40,7 +40,14 @@ class AuthService {
         email,
         username,
         password: hashedPassword,
-        role: 'USER'
+        role: 'USER',
+        nombre,
+        apellido,
+        edad,
+        genero,
+        pais,
+        ciudad
+        
       },
       select: {
         id: true,

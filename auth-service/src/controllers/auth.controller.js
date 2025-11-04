@@ -1,21 +1,47 @@
 
 const authService = require('../services/auth.service.js');
-
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+require("dotenv").config();
 class AuthController {
   /**
    * POST /api/auth/register
    */
-  async register(req, res, next) {
+  
+  /*async register(req, res, next) {
     try {
       const { email, username, password } = req.body;
       
       const user = await authService.register({ email, username, password });
+
+      if (!username || !email || !password) {
+      return res.status(400).json({ success: false, message: "Faltan campos obligatorios." });
+    }
       
       res.status(201).json({
         success: true,
         message: 'Usuario registrado exitosamente',
         data: { user }
+        
       });
+ const newUser = await User.create({
+      username,
+      email,
+      password: hashedPassword,
+      role: role || "USER"
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Usuario registrado exitosamente.",
+      data: {
+        id: newUser.id,
+        username: newUser.username,
+        email: newUser.email,
+        role: newUser.role
+      }
+    });
+  
     } catch (error) {
       if (error.message === 'EMAIL_ALREADY_EXISTS') {
         return res.status(409).json({
@@ -30,7 +56,47 @@ class AuthController {
           message: 'El username ya está en uso'
         });
       }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
       
+      
+      next(error);
+    }
+  }*/
+ async register(req, res, next) {
+    try {
+      const { email, username, password, nombre, apellido, edad, pais, ciudad } = req.body;
+
+      const user = await authService.register({
+        email,
+        username,
+        password,
+        nombre,
+        apellido,
+        edad,
+        pais,
+        ciudad
+      });
+
+      res.status(201).json({
+        success: true,
+        message: 'Usuario registrado exitosamente',
+        data: { user }
+      });
+
+    } catch (error) {
+      if (error.message === 'EMAIL_ALREADY_EXISTS') {
+        return res.status(409).json({
+          success: false,
+          message: 'El email ya está registrado'
+        });
+      }
+      if (error.message === 'USERNAME_ALREADY_EXISTS') {
+        return res.status(409).json({
+          success: false,
+          message: 'El username ya está en uso'
+        });
+      }
       next(error);
     }
   }

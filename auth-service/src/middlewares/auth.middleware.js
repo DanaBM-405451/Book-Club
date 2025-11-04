@@ -1,5 +1,5 @@
-const { verifyToken } = require('../utils/jwt.utils');
-const prisma = require('../config/database');
+const { verifyToken } = require('../utils/jwt.utils.js');
+const prisma = require('../config/database.js');
 
 const authenticate = async (req, res, next) => {
   try {

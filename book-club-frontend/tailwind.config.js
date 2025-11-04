@@ -1,0 +1,87 @@
+// tailwind.config.js
+
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
+    './src/components/**/*.{js,ts,jsx,tsx,mdx}',
+    './src/app/**/*.{js,ts,jsx,tsx,mdx}',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          50: '#fdf4f5',
+          100: '#fce8eb',
+          200: '#f9d5db',
+          300: '#f4b5c0',
+          400: '#ee8a9e',
+          500: '#e5647f',
+          600: '#d14267',
+          700: '#b03154',
+          800: '#922b4b',
+          900: '#7c2845',
+        },
+        secondary: {
+          50: '#f3faf7',
+          100: '#e6f5ef',
+          200: '#c0e7d8',
+          300: '#99d9c0',
+          400: '#73cca8',
+          500: '#4dbe90',
+          600: '#3da578',
+          700: '#2e8c60',
+          800: '#267356',
+          900: '#1f5a48',
+        },
+        neutral: {
+          50: '#fdfcfb',
+          100: '#f7f5f0',
+          200: '#f0ebe0',
+          300: '#e8dfc9',
+          400: '#d9ccad',
+          500: '#c9b896',
+          600: '#b09977',
+          700: '#8f7957',
+          800: '#6b5940',
+          900: '#4a3e2e',
+        },
+        accent: {
+          50: '#f8f7fb',
+          100: '#f1eef7',
+          200: '#e4dcef',
+          300: '#d1c2e3',
+          400: '#b99ed3',
+          500: '#a07ac3',
+          600: '#8760b0',
+          700: '#6f4d96',
+          800: '#5a3f7c',
+          900: '#4a3366',
+        },
+        gold: {
+          50: '#fefcf3',
+          100: '#fef9e7',
+          200: '#fdf0c4',
+          300: '#fbe49d',
+          400: '#f8d66e',
+          500: '#f5c842',
+          600: '#e0b02e',
+          700: '#b88e1f',
+          800: '#946f18',
+          900: '#785a16',
+        },
+      },
+      fontFamily: {
+        heading: ['"Playfair Display"', 'Georgia', 'serif'],
+        body: ['"Crimson Text"', '"Times New Roman"', 'serif'],
+        ui: ['Inter', '"Helvetica Neue"', 'sans-serif'],
+      },
+      boxShadow: {
+        vintage: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(139, 92, 46, 0.06)',
+        book: '0 10px 25px rgba(0, 0, 0, 0.15), 0 5px 10px rgba(139, 92, 46, 0.1)',
+        card: '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(139, 92, 46, 0.05)',
+      },
+    },
+  },
+  plugins: [],
+};

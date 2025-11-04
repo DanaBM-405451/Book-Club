@@ -3,6 +3,8 @@
 // (Tu schema actual con correcciones)
 // =====================================================
 
+// library-service/prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,8 +13,11 @@ datasource db {
   provider = "mysql"
   url      = env("DATABASE_URL")
   shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
-
 }
+
+// =====================================================
+// BOOK
+// =====================================================
 
 model Book {
   id              Int       @id @default(autoincrement())
@@ -26,19 +31,14 @@ model Book {
   isbn13          String?   @unique
   titulo          String    @db.VarChar(500)
   subtitulo       String?   @db.VarChar(500)
-  
-  
-  autor              String    @db.Text //  ejemplo: "Gabriel García Márquez, Otro Autor"
+  autor           String    @db.Text
   
   publicacion        String?   @db.VarChar(255)
   fechaPublicacion   String?   @map("published_date")
   descripcion        String?   @db.Text
   pageCount          Int?      @map("page_count")
-  
-  
-  categorias      String?   @db.Text // "Ficcion, Fantasia, Adventura, etc"
-  
-  idioma          String?   @db.VarChar(10) @default("es")
+  categorias         String?   @db.Text
+  idioma             String?   @db.VarChar(10) @default("es")
   
   // Archivos
   coverImageUrl   String?   @map("cover_image_url") @db.VarChar(1000)
@@ -54,8 +54,6 @@ model Book {
   // Control
   uploadedByUserId String?  @map("uploaded_by_user_id")
   isPublic        Boolean   @default(true) @map("is_public")
-  
-  
   isDeleted       Boolean   @default(false) @map("is_deleted")
   deletedAt       DateTime? @map("deleted_at")
   
@@ -66,6 +64,9 @@ model Book {
   userBooks       UserBook[]
   groupBooks      GroupBook[]
   notes           Note[]
+  annotations     Annotation[]
+  bookmarks       Bookmark[]
+  readingSessions ReadingSession[]
 
   @@index([titulo])
   @@index([googleBookId])
@@ -75,38 +76,13 @@ model Book {
   @@map("books")
 }
 
-model GroupBook {
-  id              Int       @id @default(autoincrement())
-  groupId         String    @map("group_id") // UUID del grupo
-  bookId          Int       @map("book_id")
-  
-  addedByUserId   String    @map("added_by_user_id")
-  status          GroupBookStatus @default(SUGGESTED)
-  
-  // Programación de lectura
-  startDate       DateTime? @map("start_date")
-  endDate         DateTime? @map("end_date")
-  targetPagesPerDay Int?    @map("target_pages_per_day")
-  
-  // Estadísticas
-  membersReading  Int       @default(0) @map("members_reading")
-  membersFinished Int       @default(0) @map("members_finished")
-  
-  addedAt         DateTime  @default(now()) @map("added_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-
-  // Relaciones
-  book            Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
-
-  @@unique([groupId, bookId])
-  @@index([groupId])
-  @@index([status])
-  @@map("group_books")
-}
+// =====================================================
+// USER BOOK (Relación usuario-libro)
+// =====================================================
 
 model UserBook {
   id              Int       @id @default(autoincrement())
-  userId          String    @map("user_id") // UUID del usuario
+  userId          String    @map("user_id")
   bookId          Int       @map("book_id")
   
   // Estado de lectura
@@ -117,23 +93,33 @@ model UserBook {
   totalPages      Int       @map("total_pages")
   progressPercent Decimal   @default(0) @map("progress_percent") @db.Decimal(5, 2)
   
-  // Calificación personal (1-5, permite .5)
-  rating          Decimal?  @db.Decimal(2, 1) // 4.5
-  isFavorite      Boolean   @default(false) @map("is_favorite")
+  // Última posición de lectura (para reanudar)
+  lastReadPosition String?  @map("last_read_position") @db.VarChar(500)
+  lastReadAt      DateTime? @map("last_read_at")
   
-  // ✅ CORREGIDO: String en vez de JSON
-  tags            String?   @db.Text // "thriller, verano-2024, pendiente"
+  // Calificación personal
+  rating          Decimal?  @db.Decimal(2, 1)
+  isFavorite      Boolean   @default(false) @map("is_favorite")
+  tags            String?   @db.Text
   
   // Fechas
   startedAt       DateTime? @map("started_at")
   finishedAt      DateTime? @map("finished_at")
   addedAt         DateTime  @default(now()) @map("added_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
-
+  
+  // Estadísticas de lectura
+  totalReadingTimeMinutes Int @default(0) @map("total_reading_time_minutes")
+  totalAnnotations Int       @default(0) @map("total_annotations")
+  totalBookmarks  Int        @default(0) @map("total_bookmarks")
+  
   // Relaciones
-  book            Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  book            Book            @relation(fields: [bookId], references: [id], onDelete: Cascade)
   notes           Note[]
   readingLogs     ReadingLog[]
+  annotations     Annotation[]
+  bookmarks       Bookmark[]
+  readingSessions ReadingSession[]
 
   @@unique([userId, bookId])
   @@index([userId])
@@ -141,6 +127,40 @@ model UserBook {
   @@index([rating])
   @@map("user_books")
 }
+
+// =====================================================
+// GROUP BOOK
+// =====================================================
+
+model GroupBook {
+  id              Int       @id @default(autoincrement())
+  groupId         String    @map("group_id")
+  bookId          Int       @map("book_id")
+  
+  addedByUserId   String    @map("added_by_user_id")
+  status          GroupBookStatus @default(SUGGESTED)
+  
+  startDate       DateTime? @map("start_date")
+  endDate         DateTime? @map("end_date")
+  targetPagesPerDay Int?    @map("target_pages_per_day")
+  
+  membersReading  Int       @default(0) @map("members_reading")
+  membersFinished Int       @default(0) @map("members_finished")
+  
+  addedAt         DateTime  @default(now()) @map("added_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  book            Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, bookId])
+  @@index([groupId])
+  @@index([status])
+  @@map("group_books")
+}
+
+// =====================================================
+// NOTE
+// =====================================================
 
 model Note {
   id              Int       @id @default(autoincrement())
@@ -150,11 +170,8 @@ model Note {
   
   title           String?   @db.VarChar(255)
   content         String    @db.Text
-  
-  // Ubicación
   page            Int?
   chapter         String?   @db.VarChar(255)
-  
   type            NoteType  @default(NOTE)
   isPublic        Boolean   @default(false) @map("is_public")
   
@@ -170,6 +187,112 @@ model Note {
   @@map("notes")
 }
 
+// =====================================================
+// ANNOTATION (Highlights, subrayados)
+// =====================================================
+
+model Annotation {
+  id              Int       @id @default(autoincrement())
+  userId          String    @map("user_id")
+  bookId          Int       @map("book_id")
+  userBookId      Int       @map("user_book_id")
+  
+  type            AnnotationType @default(HIGHLIGHT)
+  
+  // Ubicación
+  chapter         String?   @db.VarChar(255)
+  page            Int?
+  startOffset     Int?      @map("start_offset")
+  endOffset       Int?      @map("end_offset")
+  
+  // Contenido
+  selectedText    String?   @map("selected_text") @db.Text
+  noteContent     String?   @map("note_content") @db.Text
+  highlightColor  String?   @map("highlight_color") @db.VarChar(7)
+  context         String?   @db.Text
+  cfi             String?   @db.VarChar(500)
+  
+  isPublic        Boolean   @default(false) @map("is_public")
+  isFavorite      Boolean   @default(false) @map("is_favorite")
+  pointsAwarded   Int?      @default(0) @map("points_awarded")
+  
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  
+  book            Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  userBook        UserBook  @relation(fields: [userBookId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([userBookId])
+  @@index([type])
+  @@index([isFavorite])
+  @@map("annotations")
+}
+
+// =====================================================
+// BOOKMARK
+// =====================================================
+
+model Bookmark {
+  id              Int       @id @default(autoincrement())
+  userId          String    @map("user_id")
+  bookId          Int       @map("book_id")
+  userBookId      Int       @map("user_book_id")
+  
+  chapter         String?   @db.VarChar(255)
+  page            Int?
+  scrollPosition  Int?      @map("scroll_position")
+  cfi             String?   @db.VarChar(500)
+  title           String?   @db.VarChar(255)
+  note            String?   @db.Text
+  
+  createdAt       DateTime  @default(now()) @map("created_at")
+  
+  book            Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  userBook        UserBook  @relation(fields: [userBookId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([userBookId])
+  @@map("bookmarks")
+}
+
+// =====================================================
+// READING SESSION (Para gamificación)
+// =====================================================
+
+model ReadingSession {
+  id              Int       @id @default(autoincrement())
+  userId          String    @map("user_id")
+  bookId          Int       @map("book_id")
+  userBookId      Int       @map("user_book_id")
+  
+  startPage       Int       @map("start_page")
+  endPage         Int       @map("end_page")
+  pagesRead       Int       @map("pages_read")
+  
+  startTime       DateTime  @map("start_time")
+  endTime         DateTime  @map("end_time")
+  durationMinutes Int       @map("duration_minutes")
+  
+  pointsEarned    Int       @default(0) @map("points_earned")
+  achievementsUnlocked String? @db.Text
+  deviceType      String?   @db.VarChar(50)
+  
+  createdAt       DateTime  @default(now()) @map("created_at")
+  
+  book            Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  userBook        UserBook  @relation(fields: [userBookId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([userBookId])
+  @@index([createdAt])
+  @@map("reading_sessions")
+}
+
+// =====================================================
+// READING LOG
+// =====================================================
+
 model ReadingLog {
   id              Int       @id @default(autoincrement())
   userId          String    @map("user_id")
@@ -178,10 +301,7 @@ model ReadingLog {
   pagesRead       Int       @map("pages_read")
   fromPage        Int       @map("from_page")
   toPage          Int       @map("to_page")
-  
   durationMinutes Int?      @map("duration_minutes")
-  
-  // Para el service de analisis 
   deviceType      String?   @map("device_type") @db.VarChar(50)
   
   readAt          DateTime  @default(now()) @map("read_at")
@@ -194,7 +314,10 @@ model ReadingLog {
   @@map("reading_logs")
 }
 
-// Enums
+// =====================================================
+// ENUMS
+// =====================================================
+
 enum ReadingStatus {
   QUIERO_LEER
   LEYENDO
@@ -208,6 +331,13 @@ enum NoteType {
   HIGHLIGHT
   REVIEW
   THOUGHT
+}
+
+enum AnnotationType {
+  HIGHLIGHT
+  UNDERLINE
+  NOTE
+  BOOKMARK
 }
 
 enum BookSource {

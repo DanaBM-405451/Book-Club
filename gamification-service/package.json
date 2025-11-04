@@ -1,0 +1,29 @@
+{
+  "name": "gamification-service",
+  "version": "1.0.0",
+  "description": "Gamification service for Book Club - XP, levels, achievements",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "seed:achievements": "node src/utils/seedAchievements.js"
+  },
+  "keywords": ["gamification", "achievements", "xp", "levels"],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "express": "4.21.2",
+    "express-validator": "7.2.1",
+    "prisma": "^5.7.1",
+    "@prisma/client": "^5.7.1",
+    "dotenv": "^16.3.1",
+    "cors": "^2.8.5",
+    "axios": "1.12.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

@@ -55,7 +55,7 @@ const handleValidationErrors = (req, res, next) => {
  * - readingGoal: opcional, número positivo
  */
 const updateProfileValidation = [
-  body('firstName')
+  body('nombre')
     .optional()
     .trim()
     .isLength({ min: 1, max: 100 })
@@ -63,7 +63,7 @@ const updateProfileValidation = [
     .matches(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/)
     .withMessage('Nombre solo puede contener letras'),
   
-  body('lastName')
+  body('apellido')
     .optional()
     .trim()
     .isLength({ min: 1, max: 100 })
@@ -71,7 +71,7 @@ const updateProfileValidation = [
     .matches(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/)
     .withMessage('Apellido solo puede contener letras'),
   
-  body('displayName')
+  body('nickName')
     .optional()
     .trim()
     .isLength({ min: 3, max: 150 })
@@ -105,25 +105,25 @@ const updateProfileValidation = [
       return true;
     }),
   
-  body('country')
+  body('pais')
     .optional()
     .trim()
     .isLength({ min: 2, max: 100 })
     .withMessage('País inválido'),
   
-  body('province')
+  body('provincia')
     .optional()
     .trim()
     .isLength({ max: 100 })
     .withMessage('Provincia inválida'),
   
-  body('city')
+  body('ciudad')
     .optional()
     .trim()
     .isLength({ max: 100 })
     .withMessage('Ciudad inválida'),
   
-  body('favoriteGenres')
+  body('favoriteGeneros')
     .optional()
     .trim()
     .isLength({ max: 500 })

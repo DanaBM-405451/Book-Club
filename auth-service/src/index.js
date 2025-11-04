@@ -7,10 +7,12 @@ const errorHandler = require('./middlewares/errorHandler');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+//app.listen(PORT,()=> console.console.log(`Auth Service running on port ${PORT}`));
+
 
 // Middlewares
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: process.env.CORS_ORIGIN || '*', //'http://localhost:3000',
   credentials: true
 }));
 app.use(express.json());
@@ -24,6 +26,7 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -40,7 +43,7 @@ app.use('*', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT,'0.0.0.0', () => {
   console.log(`Auth Service running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV}`);
   console.log(`Health check: http://localhost:${PORT}/health`);

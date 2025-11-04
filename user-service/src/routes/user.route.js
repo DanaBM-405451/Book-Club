@@ -15,14 +15,76 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/user.controller');
-const { authenticate, requireAdmin } = require('../middleware/user.middleware.js');
+const { authenticate, requireAdmin } = require('../middleware/auth.middleware');
+const { upload } = require('../utils/cloudinary.utils');
+const {
+  updateProfileValidation,
+  updateNotificationSettingsValidation,
+  changePasswordValidation
+} = require('../utils/validators');
+
+// ============================================
+// RUTAS PÚBLICAS (sin autenticación)
+// ============================================
+
+// ✅ IMPORTANTE: Las rutas específicas DEBEN ir ANTES de las rutas con parámetros
+router.get('/avatars/default', userController.getDefaultAvatars);
+
+// ============================================
+// RUTAS PROTEGIDAS (requieren autenticación)
+// ============================================
+
+// ✅ Rutas específicas primero
+router.get('/profile', authenticate, userController.getProfile);
+router.put('/profile', authenticate, updateProfileValidation, userController.updateProfile);
+router.post('/profile/avatar', authenticate, upload.single('avatar'), userController.uploadAvatar);
+router.put('/profile/avatar/default', authenticate, userController.selectDefaultAvatar);
+
+router.get('/notifications/settings', authenticate, userController.getNotificationSettings);
+router.put('/notifications/settings', authenticate, updateNotificationSettingsValidation, userController.updateNotificationSettings);
+
+router.put('/change-password', authenticate, changePasswordValidation, userController.changePassword);
+router.delete('/account', authenticate, userController.deleteAccount);
+
+// ============================================
+// RUTA INTERNA (sin autenticación)
+// ============================================
+
+router.post('/profile/create', userController.createProfile);
+
+// ============================================
+// RUTAS CON PARÁMETROS (DEBEN IR AL FINAL)
+// ============================================
+
+// ✅ Esta ruta DEBE ir al final porque captura cualquier cosa
+router.get('/:userId', userController.getPublicProfile);
+
+module.exports = router;
+
+/*
+const express = require('express');
+const router = express.Router();
+const userController = require('../controllers/user.controller.js');
+const { authenticate, requireAdmin } = require('../middleware/auth.middleware.js');
 const { upload } = require('../utils/cloudinary.utils.js');
 const {
   updateProfileValidation,
   updateNotificationSettingsValidation,
   changePasswordValidation
-} = require('../utils/validators.js');
+} = require('../utils/validators');
+*/
 
+/*
+const express = require('express');
+const router = express.Router();
+const userController = require('../controllers/user.controller.js');
+const { authenticate, requireAdmin } = require('../middleware/auth.middleware.js'); 
+const { upload } = require('../utils/cloudinary.utils.js');
+const {
+  updateProfileValidation,
+  updateNotificationSettingsValidation,
+  changePasswordValidation
+} = require('../utils/validators');
 /**
  * RUTAS PÚBLICAS
  * No requieren autenticación
@@ -40,6 +102,7 @@ router.get('/avatars/default', userController.getDefaultAvatars);
  */
 
 // GET /api/users/profile - Ver mi perfil completo
+/*
 router.get('/profile', authenticate, userController.getProfile);
 
 // PUT /api/users/profile - Actualizar mi perfil
@@ -61,6 +124,7 @@ router.put(
  * 3. Lo guarda en req.file.buffer
  * 4. El controller accede a req.file.buffer
  */
+/*
 router.post(
   '/profile/avatar',
   authenticate,
@@ -80,6 +144,7 @@ router.put(
  */
 
 // GET /api/users/notifications/settings - Obtener configuración
+/*
 router.get(
   '/notifications/settings',
   authenticate,
@@ -97,6 +162,7 @@ router.put(
 /**
  * CAMBIO DE CONTRASEÑA
  */
+/*
 router.put(
   '/change-password',
   authenticate,
@@ -107,6 +173,7 @@ router.put(
 /**
  * ELIMINAR CUENTA
  */
+/*
 router.delete(
   '/account',
   authenticate,
@@ -122,6 +189,8 @@ router.delete(
  * - Opción 2: Mutual TLS
  * - Opción 3: Service mesh (Istio)
  */
+/*
 router.post('/profile/create', userController.createProfile);
 
 module.exports = router;
+*/

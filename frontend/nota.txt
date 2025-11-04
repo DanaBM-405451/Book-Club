@@ -1,2 +1,0 @@
-Haremos una estructuro BFF (backend for frontend)
-se hara por capas pero aqui estara todas las pantallas (aprox 5)

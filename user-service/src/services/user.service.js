@@ -1,5 +1,366 @@
 // user-service/src/services/user.service.js
 
+const prisma = require('../config/database');
+const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/cloudinary.utils');
+const axios = require('axios');
+
+class UserService {
+  /**
+   * CREAR PERFIL
+   */
+  async createProfile(userId, additionalData = {}) {
+    const existing = await prisma.profile.findUnique({
+      where: { userId }
+    });
+    
+    if (existing) {
+      console.log(`⚠️ Profile already exists for user ${userId}`);
+      return existing;
+    }
+    
+    const profile = await prisma.profile.create({
+      data: {
+        userId,
+        nombre: additionalData.nombre || null,
+        apellido: additionalData.apellido || null,
+        birthDate: additionalData.birthDate ? new Date(additionalData.birthDate) : null,
+        avatarType: 'DEFAULT',
+        defaultAvatar: 'avatar_01.png',
+        isProfilePublic: true,
+        showLocation: false,
+        showStats: true
+      }
+    });
+    
+    const existingSettings = await prisma.notificationSettings.findUnique({
+      where: { userId }
+    });
+    
+    if (!existingSettings) {
+      await prisma.notificationSettings.create({
+        data: {
+          userId,
+          emailEnabled: true,
+          pushEnabled: true,
+          friendRequests: true,
+          groupInvites: true,
+          newMessages: true,
+          readingReminders: true,
+          achievements: true
+        }
+      });
+      console.log(`✅ Notification settings created for user ${userId}`);
+    }
+    
+    console.log(`✅ Profile created for user ${userId}`);
+    return profile;
+  }
+
+  /**
+   * OBTENER PERFIL PROPIO
+   */
+  async getProfile(userId) {
+    let profile = await prisma.profile.findUnique({
+      where: { userId }
+    });
+    
+    if (!profile) {
+      console.log(`⚠️ Profile not found for user ${userId}, creating...`);
+      profile = await this.createProfile(userId);
+    }
+    
+    let notificationSettings = await prisma.notificationSettings.findUnique({
+      where: { userId }
+    });
+    
+    if (!notificationSettings) {
+      notificationSettings = await prisma.notificationSettings.create({
+        data: {
+          userId,
+          emailEnabled: true,
+          pushEnabled: true,
+          friendRequests: true,
+          groupInvites: true,
+          newMessages: true,
+          readingReminders: true,
+          achievements: true
+        }
+      });
+      console.log(`✅ Notification settings created for user ${userId}`);
+    }
+    
+    return {
+      profile,
+      notificationSettings
+    };
+  }
+
+  /**
+   * OBTENER PERFIL PÚBLICO
+   */
+  async getPublicProfile(userId) {
+    const profile = await prisma.profile.findUnique({
+      where: { userId },
+      select: {
+        id: true,
+        userId: true,
+        username: true,
+        nombre: true,
+        apellido: true,
+        bio: true,
+        avatarType: true,
+        avatarUrl: true,
+        defaultAvatar: true,
+        favoriteGeneros: true,
+        readingGoal: true,
+        isProfilePublic: true,
+        showLocation: true,
+        showStats: true,
+        pais: true,
+        ciudad: true,
+        provincia: true,
+        createdAt: true
+      }
+    });
+    
+    if (!profile) {
+      throw new Error('PROFILE_NOT_FOUND');
+    }
+    
+    if (!profile.isProfilePublic) {
+      return {
+        username: profile.username || 'Usuario privado',
+        isProfilePublic: false
+      };
+    }
+    
+    if (!profile.showLocation) {
+      delete profile.pais;
+      delete profile.ciudad;
+      delete profile.provincia;
+    }
+    
+    return profile;
+  }
+
+  /**
+   * ACTUALIZAR PERFIL
+   */
+  async updateProfile(userId, data) {
+    let profile = await prisma.profile.findUnique({
+      where: { userId }
+    });
+    
+    if (!profile) {
+      console.log(`⚠️ Profile not found for user ${userId}, creating...`);
+      profile = await this.createProfile(userId);
+    }
+    
+    const updateData = {};
+    
+    if (data.nombre !== undefined) updateData.nombre = data.nombre;
+    if (data.apellido !== undefined) updateData.apellido = data.apellido
+    if (data.username !== undefined) updateData.username = data.username;
+    if (data.bio !== undefined) updateData.bio = data.bio;
+    
+    if (data.birthDate !== undefined) {
+      updateData.birthDate = new Date(data.birthDate);
+    }
+    
+    if (data.pais !== undefined) updateData.pais = data.pais;
+    if (data.provincia !== undefined) updateData.provincia = data.provincia;
+    if (data.ciudad !== undefined) updateData.ciudad = data.ciudad;
+    if (data.latitude !== undefined) updateData.latitude = data.latitude;
+    if (data.longitude !== undefined) updateData.longitude = data.longitude;
+    
+    if (data.favoriteGeneros !== undefined) updateData.favoriteGeneros = data.favoriteGeneros;
+    if (data.readingGoal !== undefined) updateData.readingGoal = data.readingGoal;
+    
+    if (data.isProfilePublic !== undefined) updateData.isProfilePublic = data.isProfilePublic;
+    if (data.showLocation !== undefined) updateData.showLocation = data.showLocation;
+    if (data.showStats !== undefined) updateData.showStats = data.showStats;
+
+    if(data.favoriteBookThisMonth!== undefined) updateData.favoriteBookThisMonth=data.favoriteBookThisMonth;
+    
+    const updatedProfile = await prisma.profile.update({
+      where: { userId },
+      data: updateData
+    });
+    
+    return updatedProfile;
+  }
+
+  /**
+   * SUBIR AVATAR
+   */
+  async uploadAvatar(userId, fileBuffer) {
+    let profile = await prisma.profile.findUnique({
+      where: { userId }
+    });
+    
+    if (!profile) {
+      console.log(`⚠️ Profile not found for user ${userId}, creating...`);
+      profile = await this.createProfile(userId);
+    }
+    
+    if (profile.avatarType === 'UPLOADED' && profile.avatarUrl) {
+      const urlParts = profile.avatarUrl.split('/');
+      const filename = urlParts[urlParts.length - 1].split('.')[0];
+      const publicId = `book-club/avatars/${filename}`;
+      
+      await deleteFromCloudinary(publicId);
+    }
+    
+    const { url } = await uploadToCloudinary(fileBuffer, 'book-club/avatars');
+    
+    const updatedProfile = await prisma.profile.update({
+      where: { userId },
+      data: {
+        avatarType: 'UPLOADED',
+        avatarUrl: url,
+        defaultAvatar: null
+      }
+    });
+    
+    return updatedProfile;
+  }
+
+  /**
+   * SELECCIONAR AVATAR PREDETERMINADO
+   */
+  async selectDefaultAvatar(userId, avatarName) {
+    let profile = await prisma.profile.findUnique({
+      where: { userId }
+    });
+    
+    if (!profile) {
+      console.log(`⚠️ Profile not found for user ${userId}, creating...`);
+      profile = await this.createProfile(userId);
+    }
+    
+    if (profile.avatarType === 'UPLOADED' && profile.avatarUrl) {
+      const urlParts = profile.avatarUrl.split('/');
+      const filename = urlParts[urlParts.length - 1].split('.')[0];
+      const publicId = `book-club/avatars/${filename}`;
+      
+      await deleteFromCloudinary(publicId);
+    }
+    
+    const updatedProfile = await prisma.profile.update({
+      where: { userId },
+      data: {
+        avatarType: 'DEFAULT',
+        avatarUrl: null,
+        defaultAvatar: avatarName
+      }
+    });
+    
+    return updatedProfile;
+  }
+
+  /**
+   * OBTENER CONFIGURACIÓN DE NOTIFICACIONES
+   */
+  async getNotificationSettings(userId) {
+    let settings = await prisma.notificationSettings.findUnique({
+      where: { userId }
+    });
+    
+    if (!settings) {
+      settings = await prisma.notificationSettings.create({
+        data: {
+          userId,
+          emailEnabled: true,
+          pushEnabled: true,
+          friendRequests: true,
+          groupInvites: true,
+          newMessages: true,
+          readingReminders: true,
+          achievements: true
+        }
+      });
+    }
+    
+    return settings;
+  }
+
+  /**
+   * ACTUALIZAR CONFIGURACIÓN DE NOTIFICACIONES
+   */
+  async updateNotificationSettings(userId, data) {
+    const settings = await prisma.notificationSettings.upsert({
+      where: { userId },
+      update: data,
+      create: {
+        userId,
+        emailEnabled: data.emailEnabled !== undefined ? data.emailEnabled : true,
+        pushEnabled: data.pushEnabled !== undefined ? data.pushEnabled : true,
+        friendRequests: data.friendRequests !== undefined ? data.friendRequests : true,
+        groupInvites: data.groupInvites !== undefined ? data.groupInvites : true,
+        newMessages: data.newMessages !== undefined ? data.newMessages : true,
+        readingReminders: data.readingReminders !== undefined ? data.readingReminders : true,
+        achievements: data.achievements !== undefined ? data.achievements : true
+      }
+    });
+    
+    return settings;
+  }
+
+  /**
+   * CAMBIAR CONTRASEÑA
+   */
+  async changePassword(userId, currentPassword, newPassword) {
+    try {
+      const response = await axios.put(
+        `${process.env.AUTH_SERVICE_URL}/api/auth/change-password`,
+        {
+          userId,
+          currentPassword,
+          newPassword
+        },
+        {
+          timeout: 5000
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      if (error.response) {
+        throw new Error(error.response.data.message || 'Error al cambiar contraseña');
+      } else {
+        throw new Error('Servicio de autenticación no disponible');
+      }
+    }
+  }
+
+  /**
+   * ELIMINAR CUENTA
+   */
+  async deleteAccount(userId) {
+    await prisma.profile.update({
+      where: { userId },
+      data: {
+        isProfilePublic: false
+      }
+    });
+    
+    try {
+      await axios.put(
+        `${process.env.AUTH_SERVICE_URL}/api/auth/deactivate`,
+        { userId },
+        { timeout: 5000 }
+      );
+    } catch (error) {
+      console.error('Error deactivating user in auth-service:', error.message);
+    }
+    
+    return { message: 'Cuenta eliminada exitosamente' };
+  }
+}
+
+module.exports = new UserService();
+
+
 /**
  * PROPÓSITO:
  * - Contener TODA la lógica de negocio relacionada con perfiles
@@ -16,6 +377,339 @@
  * - Claridad: cada capa tiene una responsabilidad específica
  */
 
+// user-service/src/services/user.service.js
+/*
+const prisma = require('../config/database');
+const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/cloudinary.utils');
+const axios = require('axios');
+
+class UserService {
+  /**
+   * CREAR PERFIL
+   */
+  /*
+  async createProfile(userId) {
+    const existing = await prisma.profile.findUnique({
+      where: { userId }
+    });
+    
+    if (existing) {
+      return existing;
+    }
+    
+    const profile = await prisma.profile.create({
+      data: {
+        userId,
+        avatarType: 'DEFAULT',
+        defaultAvatar: 'avatar_01.png',
+        isProfilePublic: true,
+        showLocation: false,
+        showStats: true
+      }
+    });
+    
+    await prisma.notificationSettings.create({
+      data: {
+        userId,
+        emailEnabled: true,
+        pushEnabled: true,
+        friendRequests: true,
+        groupInvites: true,
+        newMessages: true,
+        readingReminders: true,
+        achievements: true
+      }
+    });
+    
+    return profile;
+  }
+
+  /**
+   * OBTENER PERFIL PROPIO
+   */
+  /*
+  async getProfile(userId) {
+    const profile = await prisma.profile.findUnique({
+      where: { userId }
+    });
+    
+    if (!profile) {
+      throw new Error('PROFILE_NOT_FOUND');
+    }
+    
+    const notificationSettings = await prisma.notificationSettings.findUnique({
+      where: { userId }
+    });
+    
+    return {
+      profile,
+      notificationSettings
+    };
+  }
+
+  /**
+   * OBTENER PERFIL PÚBLICO - ✅ CORREGIDO para tu schema
+   */
+  /*
+  async getPublicProfile(userId) {
+    const profile = await prisma.profile.findUnique({
+      where: { userId },
+      select: {
+        id: true,
+        userId: true,
+        // ✅ EXACTAMENTE como está en tu schema
+        nickName: true,           // ✅ Con N mayúscula
+        nombre: true,             // ✅ español
+        apellido: true,           // ✅ español
+        bio: true,
+        avatarType: true,
+        avatarUrl: true,
+        defaultAvatar: true,
+        favoriteGeneros: true,    // ✅ mezcla español/inglés
+        readingGoal: true,
+        isProfilePublic: true,
+        showLocation: true,
+        showStats: true,
+        pais: true,               // ✅ español
+        ciudad: true,             // ✅ español
+        provincia: true,          // ✅ español
+        createdAt: true
+      }
+    });
+    
+    if (!profile) {
+      throw new Error('PROFILE_NOT_FOUND');
+    }
+    
+    // Si el perfil no es público
+    if (!profile.isProfilePublic) {
+      return {
+        nickName: profile.nickName || 'Usuario privado',
+        isProfilePublic: false
+      };
+    }
+    
+    // Filtrar ubicación si showLocation = false
+    if (!profile.showLocation) {
+      delete profile.pais;
+      delete profile.ciudad;
+      delete profile.provincia;
+    }
+    
+    return profile;
+  }
+
+  /**
+   * ACTUALIZAR PERFIL - ✅ CORREGIDO para tu schema
+   */
+  /*
+  async updateProfile(userId, data) {
+    const updateData = {};
+    
+    // ✅ Campos como están en tu schema
+    if (data.nombre !== undefined) updateData.nombre = data.nombre;
+    if (data.apellido !== undefined) updateData.apellido = data.apellido;
+    if (data.nickName !== undefined) updateData.nickName = data.nickName;
+    if (data.bio !== undefined) updateData.bio = data.bio;
+    
+    if (data.birthDate !== undefined) {
+      updateData.birthDate = new Date(data.birthDate);
+    }
+    
+    // ✅ Ubicación en español
+    if (data.pais !== undefined) updateData.pais = data.pais;
+    if (data.provincia !== undefined) updateData.provincia = data.provincia;
+    if (data.ciudad !== undefined) updateData.ciudad = data.ciudad;
+    if (data.latitude !== undefined) updateData.latitude = data.latitude;
+    if (data.longitude !== undefined) updateData.longitude = data.longitude;
+    
+    // ✅ Preferencias
+    if (data.favoriteGeneros !== undefined) updateData.favoriteGeneros = data.favoriteGeneros;
+    if (data.readingGoal !== undefined) updateData.readingGoal = data.readingGoal;
+    
+    // Privacidad
+    if (data.isProfilePublic !== undefined) updateData.isProfilePublic = data.isProfilePublic;
+    if (data.showLocation !== undefined) updateData.showLocation = data.showLocation;
+    if (data.showStats !== undefined) updateData.showStats = data.showStats;
+    
+    const profile = await prisma.profile.update({
+      where: { userId },
+      data: updateData
+    });
+    
+    return profile;
+  }
+
+  /**
+   * SUBIR AVATAR
+   */
+  /*
+  async uploadAvatar(userId, fileBuffer) {
+    const profile = await prisma.profile.findUnique({
+      where: { userId }
+    });
+    
+    if (!profile) {
+      throw new Error('PROFILE_NOT_FOUND');
+    }
+    
+    if (profile.avatarType === 'UPLOADED' && profile.avatarUrl) {
+      const urlParts = profile.avatarUrl.split('/');
+      const filename = urlParts[urlParts.length - 1].split('.')[0];
+      const publicId = `book-club/avatars/${filename}`;
+      
+      await deleteFromCloudinary(publicId);
+    }
+    
+    const { url } = await uploadToCloudinary(fileBuffer, 'book-club/avatars');
+    
+    const updatedProfile = await prisma.profile.update({
+      where: { userId },
+      data: {
+        avatarType: 'UPLOADED',
+        avatarUrl: url,
+        defaultAvatar: null
+      }
+    });
+    
+    return updatedProfile;
+  }
+
+  /**
+   * SELECCIONAR AVATAR PREDETERMINADO
+   */
+  /*
+  async selectDefaultAvatar(userId, avatarName) {
+    const profile = await prisma.profile.findUnique({
+      where: { userId }
+    });
+    
+    if (!profile) {
+      throw new Error('PROFILE_NOT_FOUND');
+    }
+    
+    if (profile.avatarType === 'UPLOADED' && profile.avatarUrl) {
+      const urlParts = profile.avatarUrl.split('/');
+      const filename = urlParts[urlParts.length - 1].split('.')[0];
+      const publicId = `book-club/avatars/${filename}`;
+      
+      await deleteFromCloudinary(publicId);
+    }
+    
+    const updatedProfile = await prisma.profile.update({
+      where: { userId },
+      data: {
+        avatarType: 'DEFAULT',
+        avatarUrl: null,
+        defaultAvatar: avatarName
+      }
+    });
+    
+    return updatedProfile;
+  }
+
+  /**
+   * OBTENER CONFIGURACIÓN DE NOTIFICACIONES
+   */
+  /*
+  async getNotificationSettings(userId) {
+    let settings = await prisma.notificationSettings.findUnique({
+      where: { userId }
+    });
+    
+    if (!settings) {
+      settings = await prisma.notificationSettings.create({
+        data: {
+          userId,
+          emailEnabled: true,
+          pushEnabled: true,
+          friendRequests: true,
+          groupInvites: true,
+          newMessages: true,
+          readingReminders: true,
+          achievements: true
+        }
+      });
+    }
+    
+    return settings;
+  }
+
+  /**
+   * ACTUALIZAR CONFIGURACIÓN DE NOTIFICACIONES
+   */
+  /*
+  async updateNotificationSettings(userId, data) {
+    const settings = await prisma.notificationSettings.upsert({
+      where: { userId },
+      update: data,
+      create: {
+        userId,
+        ...data
+      }
+    });
+    
+    return settings;
+  }
+
+  /**
+   * CAMBIAR CONTRASEÑA
+   */
+  /*
+  async changePassword(userId, currentPassword, newPassword) {
+    try {
+      const response = await axios.put(
+        `${process.env.AUTH_SERVICE_URL}/api/auth/change-password`,
+        {
+          userId,
+          currentPassword,
+          newPassword
+        },
+        {
+          timeout: 5000
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      if (error.response) {
+        throw new Error(error.response.data.message || 'Error al cambiar contraseña');
+      } else {
+        throw new Error('Servicio de autenticación no disponible');
+      }
+    }
+  }
+
+  /**
+   * ELIMINAR CUENTA
+   */
+  /*
+  async deleteAccount(userId) {
+    await prisma.profile.update({
+      where: { userId },
+      data: {
+        isProfilePublic: false
+      }
+    });
+    
+    try {
+      await axios.put(
+        `${process.env.AUTH_SERVICE_URL}/api/auth/deactivate`,
+        { userId },
+        { timeout: 5000 }
+      );
+    } catch (error) {
+      console.error('Error deactivating user in auth-service:', error.message);
+    }
+    
+    return { message: 'Cuenta eliminada exitosamente' };
+  }
+}
+
+module.exports = new UserService();
+*/
+
+/*
 const prisma = require('../config/database');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/cloudinary.utils');
 const axios = require('axios');
@@ -34,6 +728,7 @@ class UserService {
    * 3. Se crea perfil con valores por defecto
    * 4. Usuario puede editarlo después
    */
+  /*
   async createProfile(userId) {
     // Verificar si ya existe perfil (idempotencia)
     const existing = await prisma.profile.findUnique({
@@ -79,6 +774,7 @@ class UserService {
    * @param {String} userId - ID del usuario autenticado
    * @returns {Object} - Perfil completo con configuraciones
    */
+  /*
   async getProfile(userId) {
     const profile = await prisma.profile.findUnique({
       where: { userId },
@@ -114,25 +810,29 @@ class UserService {
    * - No mostrar email, birthDate si no es público
    * - Respetar showLocation, showStats
    */
+  /*
   async getPublicProfile(userId) {
     const profile = await prisma.profile.findUnique({
       where: { userId },
       select: {
         id: true,
         userId: true,
-        displayName: true,
+        nickName: true,
+        nombre: true,      
+        apellido: true,    
         bio: true,
         avatarType: true,
         avatarUrl: true,
         defaultAvatar: true,
-        favoriteGenres: true,
+        favoriteGeneros: true,
         readingGoal: true,
         isProfilePublic: true,
         showLocation: true,
         showStats: true,
         // Solo incluir ubicación si showLocation = true
-        country: true,
-        city: true,
+        pais: true,
+        ciudad: true,
+        provincia: true,
         // NO incluir: email, birthDate, province, latitude, longitude
         createdAt: true
       }
@@ -145,15 +845,16 @@ class UserService {
     // Si el perfil no es público, no mostrar nada excepto nombre
     if (!profile.isProfilePublic) {
       return {
-        displayName: profile.displayName || 'Usuario privado',
+        nickName: profile.nickName || 'Usuario privado',
         isProfilePublic: false
       };
     }
     
     // Filtrar ubicación si showLocation = false
     if (!profile.showLocation) {
-      delete profile.country;
-      delete profile.city;
+      delete profile.pais;
+      delete profile.ciudad;
+      delete profile.provincia;
     }
     
     return profile;
@@ -171,14 +872,15 @@ class UserService {
    * - No sobrescribir campos con undefined
    * - Validaciones ya se hicieron en validators.js
    */
+  /*
   async updateProfile(userId, data) {
     // Construir objeto de actualización solo con campos presentes
     const updateData = {};
     
     // Campos de texto
-    if (data.firstName !== undefined) updateData.firstName = data.firstName;
-    if (data.lastName !== undefined) updateData.lastName = data.lastName;
-    if (data.displayName !== undefined) updateData.displayName = data.displayName;
+    if (data.nombre !== undefined) updateData.nombre = data.nombre;
+    if (data.apellido !== undefined) updateData.apellido = data.apellido;
+    if (data.nickName !== undefined) updateData.nickName = data.nickName;
     if (data.bio !== undefined) updateData.bio = data.bio;
     
     // Fecha de nacimiento
@@ -187,14 +889,14 @@ class UserService {
     }
     
     // Ubicación
-    if (data.country !== undefined) updateData.country = data.country;
-    if (data.province !== undefined) updateData.province = data.province;
-    if (data.city !== undefined) updateData.city = data.city;
+    if (data.pais !== undefined) updateData.pais = data.pais;
+    if (data.provincia !== undefined) updateData.provincia = data.provincia;
+    if (data.pais !== undefined) updateData.pais = data.pais;
     if (data.latitude !== undefined) updateData.latitude = data.latitude;
     if (data.longitude !== undefined) updateData.longitude = data.longitude;
     
     // Preferencias
-    if (data.favoriteGenres !== undefined) updateData.favoriteGenres = data.favoriteGenres;
+    if (data.favoriteGeneros !== undefined) updateData.favoriteGeneros = data.favoriteGeneros;
     if (data.readingGoal !== undefined) updateData.readingGoal = data.readingGoal;
     
     // Privacidad
@@ -224,6 +926,7 @@ class UserService {
    * 4. Actualizar perfil con nueva URL
    * 5. Cambiar avatarType a UPLOADED
    */
+  /*
   async uploadAvatar(userId, fileBuffer) {
     // Obtener perfil actual
     const profile = await prisma.profile.findUnique({
@@ -269,6 +972,7 @@ class UserService {
    * @param {String} avatarName - Nombre del avatar (ej: "avatar_03.png")
    * @returns {Object} - Perfil actualizado
    */
+  /*
   async selectDefaultAvatar(userId, avatarName) {
     const profile = await prisma.profile.findUnique({
       where: { userId }
@@ -302,6 +1006,7 @@ class UserService {
   /**
    * OBTENER CONFIGURACIÓN DE NOTIFICACIONES
    */
+  /*
   async getNotificationSettings(userId) {
     let settings = await prisma.notificationSettings.findUnique({
       where: { userId }
@@ -329,6 +1034,7 @@ class UserService {
   /**
    * ACTUALIZAR CONFIGURACIÓN DE NOTIFICACIONES
    */
+  /*
   async updateNotificationSettings(userId, data) {
     const settings = await prisma.notificationSettings.upsert({
       where: { userId },
@@ -350,6 +1056,7 @@ class UserService {
    * @param {String} currentPassword - Contraseña actual
    * @param {String} newPassword - Nueva contraseña
    */
+  /*
   async changePassword(userId, currentPassword, newPassword) {
     try {
       // Llamar al endpoint de auth-service para cambiar contraseña
@@ -387,6 +1094,7 @@ class UserService {
    * 2. Llamar a auth-service para desactivar usuario
    * 3. NO eliminar datos (GDPR: el usuario puede pedir recuperación dentro de 30 días)
    */
+  /*
   async deleteAccount(userId) {
     // Marcar perfil como eliminado
     await prisma.profile.update({
@@ -413,4 +1121,4 @@ class UserService {
   }
 }
 
-module.exports = new UserService();
+module.exports = new UserService();*/

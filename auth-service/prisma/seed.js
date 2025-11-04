@@ -7,7 +7,9 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Seeding database...');
   
-  const hashedPassword = await bcrypt.hash('admin123', 10);
+  const hashedPasswordAdmin = await bcrypt.hash('admin123', 10);
+  const hashedPasswordUser = await bcrypt.hash('user123', 10);
+  
   
   const admin = await prisma.user.upsert({
     where: { email: 'admin@bookclub.com' },
@@ -15,7 +17,7 @@ async function main() {
     create: {
       email: 'admin@bookclub.com',
       username: 'admin',
-      password: hashedPassword,
+      password: hashedPasswordAdmin,
       role: 'ADMIN',
       isActive: true,
       emailVerified: true
@@ -27,8 +29,8 @@ async function main() {
     update: {},
     create: {
       email: 'user@bookclub.com',
-      username: 'testuser',
-      password: hashedPassword,
+      username: 'usertest',
+      password: hashedPasswordUser,
       role: 'USER',
       isActive: true,
       emailVerified: true

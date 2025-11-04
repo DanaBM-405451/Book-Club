@@ -305,6 +305,7 @@ class UserController {
       next(error);
     }
   }
+  
 }
 
 module.exports = new UserController();
