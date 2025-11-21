@@ -1,7 +1,9 @@
 // src/app/dashboard/page.jsx
 
 'use client';
-
+import AddBookModal from '@/components/books/AddBookModal';
+import BookCard from '@/components/books/BookCard';
+import Navbar from '@/components/layout/Navbar';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
@@ -25,6 +27,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isAddBookModalOpen, setIsAddBookModalOpen] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -87,50 +90,33 @@ export default function DashboardPage() {
   return (
     <>
       <Toaster position="top-center" />
+  <Navbar />
+  
+  <div className="ml-20 min-h-screen bg-neutral-50">
 
       <div className="min-h-screen bg-neutral-50">
         {/* Header */}
-        <header className="bg-white shadow-card border-b border-neutral-200">
-          <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between">
-              {/* Logo */}
-              <div className="flex items-center gap-3">
-                <div className="bg-primary-500 p-2 rounded-lg">
-                  <BookOpen className="w-6 h-6 text-white" />
-                </div>
-                <h1 className="text-2xl font-heading">Book Club</h1>
-              </div>
+       <header className="bg-white shadow-card border-b border-neutral-200">
+  <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
+    <div className="flex items-center justify-between">
+      {/* Logo */}
+      <div className="flex items-center gap-3">
+        <div className="bg-primary-500 p-2 rounded-lg">
+          <BookOpen className="w-6 h-6 text-white" />
+        </div>
+        <h1 className="text-2xl font-heading">Book Club</h1>
+      </div>
 
-              {/* User menu */}
-              <div className="flex items-center gap-4">
-                <div className="text-right hidden sm:block">
-                  <p className="text-sm font-ui font-medium text-neutral-900">
-                    {user?.username || 'Usuario'}
-                  </p>
-                  <p className="text-xs text-neutral-500">{user?.email || ''}</p>
-                </div>
-
-                {/* Profile Link */}
-                <button
-                  onClick={() => router.push('/profile')}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-ui text-neutral-600 hover:text-primary-600 hover:bg-neutral-100 rounded transition-colors"
-                >
-                  <User className="w-4 h-4" />
-                  <span className="hidden sm:inline">Perfil</span>
-                </button>
-
-                {/* Logout */}
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-ui text-neutral-600 hover:text-primary-600 hover:bg-neutral-100 rounded transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span className="hidden sm:inline">Salir</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </header>
+      {/* User info - Solo nombre y email */}
+      <div className="text-right">
+        <p className="text-sm font-ui font-medium text-neutral-900">
+          {user?.username || 'Usuario'}
+        </p>
+        <p className="text-xs text-neutral-500">{user?.email || ''}</p>
+      </div>
+    </div>
+  </div>
+</header>
 
         <div className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
           {/* Stats Cards */}
@@ -191,15 +177,18 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
-
+          </div>
           {/* Books Section */}
           <div className="card-vintage">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-heading">Mi Biblioteca</h2>
-              <button className="btn-primary flex items-center gap-2">
-                <Plus className="w-5 h-5" />
-                <span className="hidden sm:inline">Agregar Libro</span>
-              </button>
+              <button 
+              onClick={() => setIsAddBookModalOpen(true)} 
+              className="btn-primary flex items-center gap-2"
+>
+<Plus className="w-5 h-5" />
+  <span className="hidden sm:inline">Agregar Libro</span>
+</button>
             </div>
 
             {/* Search and Filter */}
@@ -222,10 +211,15 @@ export default function DashboardPage() {
 
             {/* Books Grid */}
             {loading ? (
-              <div className="text-center py-12">
-                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500"></div>
-                <p className="mt-4 text-neutral-600 font-ui">Cargando libros...</p>
-              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+  {filteredBooks.map((userBook) => (
+    <BookCard
+      key={userBook.id}
+      userBook={userBook}
+      onUpdate={loadData}
+    />
+  ))}
+</div>
             ) : filteredBooks.length === 0 ? (
               <div className="text-center py-12">
                 <BookOpen className="w-16 h-16 text-neutral-300 mx-auto mb-4" />
@@ -306,6 +300,11 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+      <AddBookModal
+  isOpen={isAddBookModalOpen}
+  onClose={() => setIsAddBookModalOpen(false)}
+  onBookAdded={loadData}
+/>
     </>
   );
 }

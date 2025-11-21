@@ -27,6 +27,11 @@ const {
 // RUTAS PÚBLICAS (sin autenticación)
 // ============================================
 
+// ✅ RUTAS NUEVAS (agregar antes de las rutas existentes)
+router.get('/search', userController.searchUsers); // Sin auth
+router.post('/batch', userController.getBatchProfiles); // Sin auth
+
+
 // ✅ IMPORTANTE: Las rutas específicas DEBEN ir ANTES de las rutas con parámetros
 router.get('/avatars/default', userController.getDefaultAvatars);
 

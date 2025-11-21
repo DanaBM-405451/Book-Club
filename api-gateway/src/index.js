@@ -1,7 +1,5 @@
 // api-gateway/src/index.js
 
-// api-gateway/src/index.js
-
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -10,59 +8,74 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Services URLs
 const AUTH_SERVICE = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
 const USER_SERVICE = process.env.USER_SERVICE_URL || 'http://localhost:3002';
 const LIBRARY_SERVICE = process.env.LIBRARY_SERVICE_URL || 'http://localhost:3003';
 const GAMIFICATION_SERVICE = process.env.GAMIFICATION_SERVICE_URL || 'http://localhost:3004';
+const SOCIAL_SERVICE = process.env.SOCIAL_SERVICE_URL || 'http://localhost:3005';
 
 // CORS
-app.use(
-  cors({
-    origin: ['http://localhost:3000', 'http://localhost:4000'],
-    credentials: true,
-  })
-);
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:4000'],
+  credentials: true,
+}));
 
-// Body parser
+// ✅ PARSEAR BODY ANTES DE TODO
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Logging
+// Logging con DEBUG
 app.use((req, res, next) => {
-  console.log(`📨 ${req.method} ${req.path}`);
+  console.log(`\n📨 ${req.method} ${req.path}`);
+  console.log('📋 Headers:', {
+    'content-type': req.headers['content-type'],
+    'authorization': req.headers['authorization'] ? '✅ Present' : '❌ Missing'
+  });
+  
+  // ✅ LOG CRÍTICO: Ver el body que llega
+  if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+    console.log('📦 Body received in gateway:', req.body);
+  }
+  
   next();
 });
 
-// ✅ Helper function to forward requests
+// Health
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    services: {
+      auth: AUTH_SERVICE,
+      user: USER_SERVICE,
+      library: LIBRARY_SERVICE,
+      gamification: GAMIFICATION_SERVICE,
+      social: SOCIAL_SERVICE,
+    },
+  });
+});
+
+// Forward function
 async function forwardRequest(req, res, targetService) {
   try {
     const targetUrl = `${targetService}${req.path}`;
-    console.log(`🔄 Forwarding ${req.method} ${req.path} → ${targetUrl}`);
-
-    // ✅ Filtrar headers problemáticos
-    const forwardHeaders = {
-      'content-type': req.headers['content-type'],
-      'authorization': req.headers['authorization'],
-      'accept': req.headers['accept'],
-    };
+    console.log(`🔄 Forwarding to ${targetUrl}`);
+    console.log(`📦 Body being sent:`, req.body);
 
     const response = await axios({
       method: req.method,
       url: targetUrl,
       data: req.body,
-      headers: forwardHeaders,
-      timeout: 30000, // 30 segundos
-      validateStatus: () => true, // Aceptar cualquier status code
+      params: req.query,
+      headers: {
+        'content-type': req.headers['content-type'] || 'application/json',
+        'authorization': req.headers['authorization'],
+      },
+      timeout: 30000,
+      validateStatus: () => true,
     });
 
-    console.log(`✅ Response from ${req.path}: ${response.status}`);
+    console.log(`✅ Response status: ${response.status}`);
     
-    // Copiar headers de respuesta importantes
-    if (response.headers['content-type']) {
-      res.set('content-type', response.headers['content-type']);
-    }
-
     return res.status(response.status).json(response.data);
   } catch (error) {
     console.error(`❌ Error forwarding:`, error.message);
@@ -70,14 +83,7 @@ async function forwardRequest(req, res, targetService) {
     if (error.code === 'ECONNREFUSED') {
       return res.status(503).json({
         success: false,
-        message: `${targetService.split('//')[1]} service unavailable`,
-      });
-    }
-
-    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
-      return res.status(504).json({
-        success: false,
-        message: 'Gateway timeout',
+        message: `Service unavailable`,
       });
     }
 
@@ -89,43 +95,18 @@ async function forwardRequest(req, res, targetService) {
   }
 }
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    message: 'API Gateway is running',
-    services: {
-      auth: AUTH_SERVICE,
-      user: USER_SERVICE,
-      library: LIBRARY_SERVICE,
-      gamification: GAMIFICATION_SERVICE,
-    },
-  });
-});
-
-// ====================================
-// SERVICE ROUTES
-// ====================================
-
-// Auth Service
+// ✅ Routes - EN ORDEN DE ESPECIFICIDAD (más específicas primero)
 app.all('/api/auth/*', (req, res) => forwardRequest(req, res, AUTH_SERVICE));
-
-// User Service
 app.all('/api/users/*', (req, res) => forwardRequest(req, res, USER_SERVICE));
-
-// Library Service
 app.all('/api/library/*', (req, res) => forwardRequest(req, res, LIBRARY_SERVICE));
-
-// Gamification Service
 app.all('/api/gamification/*', (req, res) => forwardRequest(req, res, GAMIFICATION_SERVICE));
+app.all('/api/social/*', (req, res) => forwardRequest(req, res, SOCIAL_SERVICE)); // ✅ CORREGIDO
 
-// 404 handler
+// 404
 app.use((req, res) => {
-  console.log(`❌ 404: ${req.method} ${req.path}`);
   res.status(404).json({
     success: false,
     message: 'Endpoint not found',
-    path: req.path,
   });
 });
 
@@ -138,28 +119,181 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
 app.listen(PORT, () => {
   console.log(`
 ╔════════════════════════════════════════════════╗
 ║        🚀 API GATEWAY RUNNING                  ║
 ╠════════════════════════════════════════════════╣
 ║  Port: ${PORT}                                    ║
-║  Environment: ${process.env.NODE_ENV || 'development'}           ║
-║  Frontend: http://localhost:3000              ║
 ║                                                ║
 ║  Services:                                     ║
-║  ├─ Auth:         ${AUTH_SERVICE}          ║
-║  ├─ User:         ${USER_SERVICE}          ║
-║  ├─ Library:      ${LIBRARY_SERVICE}       ║
-║  └─ Gamification: ${GAMIFICATION_SERVICE}  ║
-║                                                ║
-║  Health: http://localhost:${PORT}/health        ║
+║  ├─ Auth:          ${AUTH_SERVICE}            ║
+║  ├─ User:          ${USER_SERVICE}            ║
+║  ├─ Library:       ${LIBRARY_SERVICE}         ║
+║  ├─ Gamification:  ${GAMIFICATION_SERVICE}    ║
+║  └─ Social:        ${SOCIAL_SERVICE}          ║
+╚════════════════════════════════════════════════╝
+  `);
+});
+
+/*
+
+const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
+require('dotenv').config();
+
+const app = express();
+const PORT = process.env.PORT || 4000;
+
+const AUTH_SERVICE = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+const USER_SERVICE = process.env.USER_SERVICE_URL || 'http://localhost:3002';
+const LIBRARY_SERVICE = process.env.LIBRARY_SERVICE_URL || 'http://localhost:3003';
+const GAMIFICATION_SERVICE = process.env.GAMIFICATION_SERVICE_URL || 'http://localhost:3004';
+const SOCIAL_SERVICE = process.env.SOCIAL_SERVICE_URL || 'http://localhost:3005';
+
+// CORS
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:4000'],
+  credentials: true,
+}));
+
+// ✅ PARSEAR BODY ANTES DE TODO
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Logging con DEBUG
+app.use((req, res, next) => {
+  console.log(`\n📨 ${req.method} ${req.path}`);
+  console.log('📋 Headers:', {
+    'content-type': req.headers['content-type'],
+    'authorization': req.headers['authorization'] ? '✅ Present' : '❌ Missing'
+  });
+  
+  // ✅ LOG CRÍTICO: Ver el body que llega
+  if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+    console.log('📦 Body received in gateway:', req.body);
+  }
+  
+  next();
+});
+
+app.use('/api/library/books', (req, res, next) => {
+  if (req.method === 'POST' && req.headers['content-type']?.includes('multipart/form-data')) {
+    console.log('🔄 Proxying multipart upload to library-service');
+    
+    const proxy = createProxyMiddleware({
+      target: process.env.LIBRARY_SERVICE_URL || 'http://localhost:3003',
+      changeOrigin: true,
+      pathRewrite: {
+        '^/api/library': '/api/library',
+      },
+      onProxyReq: (proxyReq, req) => {
+        // ✅ Copiar headers importantes
+        if (req.headers.authorization) {
+          proxyReq.setHeader('Authorization', req.headers.authorization);
+        }
+        console.log('✅ Proxying with auth header');
+      },
+    });
+    
+    return proxy(req, res, next);
+  }
+  next();
+});
+
+
+// Health
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    services: {
+      auth: AUTH_SERVICE,
+      user: USER_SERVICE,
+      library: LIBRARY_SERVICE,
+      gamification: GAMIFICATION_SERVICE,
+      social: SOCIAL_SERVICE,
+    },
+  });
+});
+
+// Forward function
+async function forwardRequest(req, res, targetService) {
+  try {
+    const targetUrl = `${targetService}${req.path}`;
+    console.log(`🔄 Forwarding to ${targetUrl}`);
+    console.log(`📦 Body being sent:`, req.body);
+
+    const response = await axios({
+      method: req.method,
+      url: targetUrl,
+      data: req.body,
+      params: req.query,
+      headers: {
+        'content-type': req.headers['content-type'] || 'application/json',
+        'authorization': req.headers['authorization'],
+      },
+      timeout: 30000,
+      validateStatus: () => true,
+    });
+
+    console.log(`✅ Response status: ${response.status}`);
+    
+    return res.status(response.status).json(response.data);
+  } catch (error) {
+    console.error(`❌ Error forwarding:`, error.message);
+    
+    if (error.code === 'ECONNREFUSED') {
+      return res.status(503).json({
+        success: false,
+        message: `Service unavailable`,
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gateway error',
+      error: error.message,
+    });
+  }
+}
+
+// Routes
+app.all('/api/auth/*', (req, res) => forwardRequest(req, res, AUTH_SERVICE));
+app.all('/api/users/*', (req, res) => forwardRequest(req, res, USER_SERVICE));
+app.all('/api/library/*', (req, res) => forwardRequest(req, res, LIBRARY_SERVICE));
+app.all('/api/gamification/*', (req, res) => forwardRequest(req, res, GAMIFICATION_SERVICE));
+app.all('api/social/*',(req,res) => forwardRequest(req, res, SOCIAL_SERVICE));
+
+// 404
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Endpoint not found',
+  });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('❌ Error:', err.message);
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || 'Internal server error',
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`
+╔════════════════════════════════════════════════╗
+║        🚀 API GATEWAY RUNNING                  ║
+╠════════════════════════════════════════════════╣
+║  Port: ${PORT}                                    ║
 ╚════════════════════════════════════════════════╝
   `);
 });
 
 module.exports = app;
+*/
 /*
 // ============================================
 // API GATEWAY - Book Club

@@ -9,7 +9,7 @@ const {
   refreshTokenValidation
 } = require('../utils/validators.js');
 
-router.post('/register', registerValidation, authController.register);
+router.post('/register',authController.register);
 router.post('/login', loginValidation, authController.login);
 router.post('/refresh', refreshTokenValidation, authController.refreshToken);
 router.post('/logout', refreshTokenValidation, authController.logout);

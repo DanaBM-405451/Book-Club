@@ -49,4 +49,23 @@
   .label-field {
     @apply block font-ui text-sm font-medium text-neutral-700 mb-2;
   }
+
+  /* React PDF styles */
+.react-pdf__Page {
+  max-width: 100%;
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.5);
+}
+
+.react-pdf__Page__textContent {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.react-pdf__Page__canvas {
+  max-width: 100%;
+  height: auto !important;
+}
+
+.react-pdf__Page__annotations {
+  display: none; /* Ocultar anotaciones del PDF original */
+}
 }

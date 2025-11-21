@@ -1,0 +1,493 @@
+// =====================================================
+// SOCIAL_DB - social-service/prisma/schema.prisma
+// Base de datos para funcionalidades sociales
+// =====================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// =====================================================
+// FRIENDSHIPS (Historia 5.2)
+// =====================================================
+
+model Friendship {
+  id              Int       @id @default(autoincrement())
+  
+  // Usuario que envía la solicitud
+  userId          String    @map("user_id")
+  
+  // Usuario que recibe la solicitud
+  friendId        String    @map("friend_id")
+  
+  // Estado de la amistad
+  status          FriendshipStatus @default(PENDING)
+  
+  // Timestamps
+  requestedAt     DateTime  @default(now()) @map("requested_at")
+  acceptedAt      DateTime? @map("accepted_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  
+  @@unique([userId, friendId])
+  @@index([userId])
+  @@index([friendId])
+  @@index([status])
+  @@map("friendships")
+}
+
+// =====================================================
+// GROUPS (Historia 5.3)
+// =====================================================
+
+model Group {
+  id              Int       @id @default(autoincrement())
+  
+  // Información básica
+  name            String    @db.VarChar(100)
+  description     String?   @db.Text
+  
+  // Configuración
+  createdBy       String    @map("created_by") // userId del admin
+  maxMembers      Int       @default(5) @map("max_members")
+  isPublic        Boolean   @default(true) @map("is_public")
+  
+  // Control
+  isActive        Boolean   @default(true) @map("is_active")
+  
+  // Timestamps
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  
+  // Relaciones
+  members         GroupMember[]
+  posts           GroupPost[]
+  goals           ReadingGoal[]
+  bookProposals   GroupBookProposal[]
+  challenges      GroupChallenge[]
+  
+  @@index([createdBy])
+  @@index([isPublic])
+  @@index([isActive])
+  @@map("groups")
+}
+
+// =====================================================
+// GROUP MEMBERS (Historia 5.3)
+// =====================================================
+
+model GroupMember {
+  id              Int       @id @default(autoincrement())
+  
+  groupId         Int       @map("group_id")
+  userId          String    @map("user_id")
+  
+  // Rol en el grupo
+  role            GroupRole @default(MEMBER)
+  
+  // Permisos especiales
+  canUploadBooks  Boolean   @default(false) @map("can_upload_books")
+  
+  // Timestamps
+  joinedAt        DateTime  @default(now()) @map("joined_at")
+  
+  // Relaciones
+  group           Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  
+  @@unique([groupId, userId])
+  @@index([userId])
+  @@index([groupId])
+  @@index([role])
+  @@map("group_members")
+}
+
+// =====================================================
+// GROUP POSTS (Historia 5.4)
+// =====================================================
+
+model GroupPost {
+  id              Int       @id @default(autoincrement())
+  
+  groupId         Int       @map("group_id")
+  userId          String    @map("user_id") // Autor del post
+  
+  // Contenido
+  content         String    @db.Text
+  
+  // Libro asociado (opcional)
+  bookId          Int?      @map("book_id")
+  bookTitle       String?   @map("book_title") @db.VarChar(500)
+  bookAuthor      String?   @map("book_author") @db.VarChar(300)
+  bookCoverUrl    String?   @map("book_cover_url") @db.VarChar(1000)
+  
+  // Archivo subido (PDF/EPUB)
+  uploadedFileUrl String?   @map("uploaded_file_url") @db.VarChar(1000)
+  fileType        FileType? @map("file_type")
+  
+  // Control
+  isPinned        Boolean   @default(false) @map("is_pinned")
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+  
+  // Timestamps
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+  
+  // Relaciones
+  group           Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  comments        GroupComment[]
+  
+  @@index([groupId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([isPinned])
+  @@map("group_posts")
+}
+
+// =====================================================
+// GROUP COMMENTS (Historia 5.4)
+// =====================================================
+
+model GroupComment {
+  id              Int       @id @default(autoincrement())
+  
+  postId          Int       @map("post_id")
+  userId          String    @map("user_id")
+  
+  // Contenido
+  content         String    @db.Text
+  
+  // Comentarios anidados (opcional)
+  parentCommentId Int?      @map("parent_comment_id")
+  
+  // Control
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+  
+  // Timestamps
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+  
+  // Relaciones
+  post            GroupPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  parentComment   GroupComment? @relation("CommentReplies", fields: [parentCommentId], references: [id], onDelete: Cascade)
+  replies         GroupComment[] @relation("CommentReplies")
+  
+  @@index([postId])
+  @@index([userId])
+  @@index([parentCommentId])
+  @@index([createdAt])
+  @@map("group_comments")
+}
+
+// =====================================================
+// READING GOALS (Historia 5.5)
+// =====================================================
+
+model ReadingGoal {
+  id              Int       @id @default(autoincrement())
+  
+  groupId         Int       @map("group_id")
+  createdBy       String    @map("created_by") // Solo admin
+  
+  // Libro objetivo
+  bookId          Int       @map("book_id")
+  bookTitle       String    @map("book_title") @db.VarChar(500)
+  bookAuthor      String?   @map("book_author") @db.VarChar(300)
+  bookCoverUrl    String?   @map("book_cover_url") @db.VarChar(1000)
+  
+  // Configuración de la meta
+  startDate       DateTime  @map("start_date") @db.Date
+  endDate         DateTime  @map("end_date") @db.Date
+  targetPages     Int?      @map("target_pages")
+  frequency       GoalFrequency @default(WEEKLY)
+  
+  // Descripción
+  description     String?   @db.Text
+  
+  // Estado
+  status          GoalStatus @default(ACTIVE)
+  
+  // Timestamps
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  
+  // Relaciones
+  group           Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  
+  @@index([groupId])
+  @@index([createdBy])
+  @@index([status])
+  @@index([startDate])
+  @@map("reading_goals")
+}
+
+// =====================================================
+// BOOK PROPOSALS (Historia 5.6 - Votación de libros)
+// =====================================================
+
+model GroupBookProposal {
+  id              Int       @id @default(autoincrement())
+  
+  groupId         Int       @map("group_id")
+  proposedBy      String    @map("proposed_by")
+  
+  // Información del libro
+  bookId          Int?      @map("book_id") // Desde library-service
+  bookTitle       String    @map("book_title") @db.VarChar(500)
+  bookAuthor      String?   @map("book_author") @db.VarChar(300)
+  bookCoverUrl    String?   @map("book_cover_url") @db.VarChar(1000)
+  bookDescription String?   @map("book_description") @db.Text
+  
+  // Origen del libro
+  source          ProposalSource @default(LIBRARY)
+  
+  // Votación
+  votingEndDate   DateTime? @map("voting_end_date")
+  totalVotes      Int       @default(0) @map("total_votes")
+  
+  // Estado
+  status          ProposalStatus @default(ACTIVE)
+  
+  // Si gana la votación
+  isWinner        Boolean   @default(false) @map("is_winner")
+  
+  // Timestamps
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  closedAt        DateTime? @map("closed_at") // 
+  
+  // Relaciones
+  group           Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  votes           ProposalVote[]
+  
+  @@index([groupId])
+  @@index([proposedBy])
+  @@index([status])
+  @@index([isWinner])
+  @@map("group_book_proposals")
+}
+
+// =====================================================
+// PROPOSAL VOTES (Historia 5.6)
+// =====================================================
+
+model ProposalVote {
+  id              Int       @id @default(autoincrement())
+  
+  proposalId      Int       @map("proposal_id")
+  userId          String    @map("user_id")
+  
+  // Timestamp
+  votedAt         DateTime  @default(now()) @map("voted_at")
+  
+  // Relaciones
+  proposal        GroupBookProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  
+  @@unique([proposalId, userId]) // Un usuario solo puede votar una vez por propuesta
+  @@index([proposalId])
+  @@index([userId])
+  @@map("proposal_votes")
+}
+
+// =====================================================
+// GROUP CHALLENGES (Historia 5.7 - Retos de lectura)
+// =====================================================
+
+model GroupChallenge {
+  id              Int       @id @default(autoincrement())
+  
+  groupId         Int       @map("group_id")
+  createdBy       String    @map("created_by")
+  
+  // Libro del reto
+  bookId          Int       @map("book_id")
+  bookTitle       String    @map("book_title") @db.VarChar(500)
+  bookAuthor      String?   @map("book_author") @db.VarChar(300)
+  bookCoverUrl    String?   @map("book_cover_url") @db.VarChar(1000)
+  totalPages      Int       @map("total_pages")
+  
+  // Origen del libro seleccionado
+  fromProposalId  Int?      @map("from_proposal_id") // Si viene de una votación
+  
+  // Fechas
+  startDate       DateTime  @map("start_date") @db.Date
+  endDate         DateTime  @map("end_date") @db.Date
+  
+  // Estado
+  status          ChallengeStatus @default(ACTIVE)
+  
+  // Descripción/Reglas
+  description     String?   @db.Text
+  
+  // Timestamps
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  archivedAt      DateTime? @map("archived_at")
+  
+  // Relaciones
+  group           Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  progress        ChallengeProgress[]
+  
+  @@index([groupId])
+  @@index([createdBy])
+  @@index([status])
+  @@index([startDate])
+  @@index([fromProposalId]) // 
+  @@map("group_challenges")
+}
+
+// =====================================================
+// CHALLENGE PROGRESS (Historia 5.7 - Progreso individual)
+// =====================================================
+
+model ChallengeProgress {
+  id              Int       @id @default(autoincrement())
+  
+  challengeId     Int       @map("challenge_id")
+  userId          String    @map("user_id")
+  
+  // Progreso
+  currentPage     Int       @default(0) @map("current_page")
+  progressPercent Decimal   @default(0) @map("progress_percent") @db.Decimal(5, 2)
+  
+  // Gamificación
+  pointsEarned    Int       @default(0) @map("points_earned")
+  
+  // Estado
+  isCompleted     Boolean   @default(false) @map("is_completed")
+  completedAt     DateTime? @map("completed_at")
+  
+  // Timestamps
+  joinedAt        DateTime  @default(now()) @map("joined_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  
+  // Relaciones
+  challenge       GroupChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  
+  @@unique([challengeId, userId])
+  @@index([challengeId])
+  @@index([userId])
+  @@index([pointsEarned])
+  @@index([isCompleted]) // para ranking
+  @@map("challenge_progress")
+}
+
+// =====================================================
+// NOTIFICATIONS (Para solicitudes de amistad y grupo)
+// =====================================================
+
+model Notification {
+  id              Int       @id @default(autoincrement())
+  
+  userId          String    @map("user_id") // Destinatario
+  senderId        String?   @map("sender_id") // Quien genera la notificación
+  
+  // Tipo y contenido
+  type            NotificationType
+  title           String    @db.VarChar(255)
+  message         String    @db.Text
+  
+  // Metadata (JSON string)
+  metadata        String?   @db.Text // {friendshipId, groupId, etc}
+  
+  // Estado
+  isRead          Boolean   @default(false) @map("is_read")
+  readAt          DateTime? @map("read_at")
+  
+  // Timestamps
+  createdAt       DateTime  @default(now()) @map("created_at")
+  
+  @@index([userId])
+  @@index([senderId]) 
+  @@index([isRead])
+  @@index([createdAt])
+  @@index([type]) 
+  @@map("notifications")
+}
+
+// =====================================================
+// ENUMS
+// =====================================================
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  BLOCKED
+}
+
+enum GroupRole {
+  ADMIN
+  MEMBER
+}
+
+enum FileType {
+  PDF
+  EPUB
+}
+
+enum GoalFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum ProposalSource {
+  LIBRARY        // Desde biblioteca personal
+  GOOGLE_BOOKS   // Búsqueda Google Books
+  MANUAL         // Carga manual
+}
+
+enum ProposalStatus {
+  ACTIVE
+  CLOSED
+  CANCELLED
+}
+
+enum ChallengeStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum NotificationType {
+  // Amistades
+  FRIEND_REQUEST
+  FRIEND_ACCEPTED
+  
+  // Grupos
+  GROUP_INVITE
+  GROUP_JOINED
+  GROUP_LEFT
+  
+  // Foro
+  NEW_POST
+  NEW_COMMENT
+  
+  // Metas
+  GOAL_CREATED
+  GOAL_COMPLETED
+  
+  // Propuestas 
+  PROPOSAL_CREATED    
+  PROPOSAL_WINNER     
+  NEW_VOTE            
+  
+  // Retos 
+  CHALLENGE_STARTED
+  CHALLENGE_COMPLETED 
+  CHALLENGE_ARCHIVED  
+  PROGRESS_UPDATE     
+}

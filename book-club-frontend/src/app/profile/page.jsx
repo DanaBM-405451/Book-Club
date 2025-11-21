@@ -29,6 +29,7 @@ export default function ProfilePage() {
   const router = useRouter();
   const { user, isAuthenticated } = useAuthStore();
   const [profile, setProfile] = useState(null);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('info');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -77,11 +78,16 @@ export default function ProfilePage() {
   const loadProfile = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/api/users/profile');
+      const [profileResponse, statsResponse] = await Promise.all([
+        api.get('/api/users/profile'),
+        api.get('/api/gamification/stats').catch(() => ({ data: { data: { stats: null } } })) // Manejo de error suave
+      ]);
       
-      const { profile: profileData, notificationSettings } = response.data.data;
-      
+      const { profile: profileData, notificationSettings } = profileResponse.data.data;
+      const gamificationStats = statsResponse.data?.data?.stats || null; // Datos de gamificación
+
       setProfile(profileData);
+      setStats(gamificationStats); // <--- GUARDAMOS LAS STATS ✅
       
       setFormData({
         nombre: profileData.nombre || '',
@@ -102,7 +108,7 @@ export default function ProfilePage() {
         showReadingActivity: profileData.showReadingActivity ?? true,
       });
     } catch (error) {
-      console.error('Error loading profile:', error);
+      console.error('Error loading profile data:', error);
       toast.error('Error al cargar el perfil');
     } finally {
       setLoading(false);
@@ -382,25 +388,35 @@ export default function ProfilePage() {
           {activeTab === 'info' && (
             <div className="grid md:grid-cols-2 gap-6">
               {/* Reading Stats */}
+              {/* Reading Stats */}
               <div className="card-vintage">
-                <h3 className="text-xl font-heading mb-4">📚 Estadísticas de Lectura</h3>
+                <h3 className="text-xl font-heading mb-4"> Estadísticas de Lectura</h3>
                 <div className="space-y-3">
+                  
+                  {/* LIBROS COMPLETADOS */}
                   <div className="flex justify-between items-center py-2 border-b border-neutral-200">
                     <span className="font-ui text-neutral-700">Libros completados</span>
                     <span className="font-heading text-lg text-primary-600">
-                      {profile?.totalBooksRead || 0}
+                      {/* Usamos stats.totalBooksRead primero */}
+                      {stats?.totalBooksRead || profile?.totalBooksRead || 0}
                     </span>
                   </div>
+
+                  {/* PÁGINAS LEÍDAS */}
                   <div className="flex justify-between items-center py-2 border-b border-neutral-200">
                     <span className="font-ui text-neutral-700">Páginas leídas</span>
                     <span className="font-heading text-lg text-secondary-600">
-                      {profile?.totalPagesRead || 0}
+                      {/* Verifica si tu endpoint de gamification trae totalPagesRead, sino usa el del perfil */}
+                      {stats?.totalPagesRead || profile?.totalPagesRead || 0}
                     </span>
                   </div>
+
+                  {/* TIEMPO DE LECTURA */}
                   <div className="flex justify-between items-center py-2">
                     <span className="font-ui text-neutral-700">Tiempo de lectura</span>
                     <span className="font-heading text-lg text-accent-600">
-                      {Math.round((profile?.totalReadingTime || 0) / 60)} hrs
+                      {/* Calculamos horas basado en minutos */}
+                      {Math.round((stats?.totalReadingTime || profile?.totalReadingTime || 0) / 60)} hrs
                     </span>
                   </div>
                 </div>
@@ -545,8 +561,8 @@ export default function ProfilePage() {
               <label className="label-field">Nombre</label>
               <input
                 type="text"
-                value={formData.firstName}
-                onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                value={formData.nombre}
+                onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
                 className="input-field"
                 placeholder="Juan"
               />
@@ -556,8 +572,8 @@ export default function ProfilePage() {
               <label className="label-field">Apellido</label>
               <input
                 type="text"
-                value={formData.lastName}
-                onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                value={formData.apellido}
+                onChange={(e) => setFormData({ ...formData, apellido: e.target.value })}
                 className="input-field"
                 placeholder="Pérez"
               />

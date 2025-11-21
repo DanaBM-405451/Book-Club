@@ -26,11 +26,13 @@ const { body, validationResult } = require('express-validator');
  */
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
-  
   if (!errors.isEmpty()) {
+    // Log para depuración en consola del servidor
+    console.log("❌ Error de validación:", JSON.stringify(errors.array(), null, 2)); 
+    
     return res.status(400).json({
       success: false,
-      message: 'Validation failed',
+      message: 'Datos inválidos', // Mensaje genérico
       errors: errors.array().map(err => ({
         field: err.path,
         message: err.msg,
@@ -38,9 +40,9 @@ const handleValidationErrors = (req, res, next) => {
       }))
     });
   }
-  
   next();
 };
+  
 
 /**
  * VALIDACIONES: Actualizar perfil
@@ -55,100 +57,70 @@ const handleValidationErrors = (req, res, next) => {
  * - readingGoal: opcional, número positivo
  */
 const updateProfileValidation = [
+  // Modificado: Permitir guiones y apóstrofes en nombres
   body('nombre')
-    .optional()
+    .optional({ checkFalsy: true })
     .trim()
-    .isLength({ min: 1, max: 100 })
-    .withMessage('Nombre debe tener entre 1 y 100 caracteres')
-    .matches(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/)
-    .withMessage('Nombre solo puede contener letras'),
-  
+    .isLength({ min: 1, max: 100 }).withMessage('Nombre muy largo')
+    // Regex ajustado para permitir guiones (-) y apóstrofes (')
+    .matches(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s\-\']+$/) 
+    .withMessage('Nombre contiene caracteres inválidos'),
+
   body('apellido')
-    .optional()
+    .optional({ checkFalsy: true })
     .trim()
-    .isLength({ min: 1, max: 100 })
-    .withMessage('Apellido debe tener entre 1 y 100 caracteres')
-    .matches(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/)
-    .withMessage('Apellido solo puede contener letras'),
-  
-  body('nickName')
-    .optional()
+    .isLength({ min: 1, max: 100 }).withMessage('Apellido muy largo')
+    .matches(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s\-\']+$/)
+    .withMessage('Apellido contiene caracteres inválidos'),
+
+  body('username') 
+    .optional({ checkFalsy: true })
     .trim()
     .isLength({ min: 3, max: 150 })
-    .withMessage('Nombre para mostrar debe tener entre 3 y 150 caracteres'),
-  
+    .withMessage('El nombre de usuario debe tener entre 3 y 150 caracteres'),
+
   body('bio')
-    .optional()
+    .optional({ checkFalsy: true })
     .trim()
     .isLength({ max: 500 })
     .withMessage('Biografía no puede exceder 500 caracteres'),
-  
+
   body('birthDate')
-    .optional()
-    .isISO8601() // Formato: YYYY-MM-DD
+    .optional({ checkFalsy: true }) // Permite enviar string vacío ""
+    .isISO8601()
     .withMessage('Fecha de nacimiento inválida')
     .custom((value) => {
       const birthDate = new Date(value);
       const today = new Date();
-      
-      if (birthDate > today) {
-        throw new Error('Fecha de nacimiento no puede ser futura');
-      }
-      
-      // Validar edad mínima (13 años - COPPA compliance)
-      const minAge = 13;
-      const age = today.getFullYear() - birthDate.getFullYear();
-      if (age < minAge) {
-        throw new Error('Debes tener al menos 13 años');
-      }
-      
+      if (birthDate > today) throw new Error('Fecha no puede ser futura');
       return true;
     }),
-  
-  body('pais')
-    .optional()
-    .trim()
-    .isLength({ min: 2, max: 100 })
-    .withMessage('País inválido'),
-  
-  body('provincia')
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage('Provincia inválida'),
-  
-  body('ciudad')
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage('Ciudad inválida'),
-  
+
+  body('pais').optional({ checkFalsy: true }).trim().isLength({ max: 100 }),
+  body('provincia').optional({ checkFalsy: true }).trim().isLength({ max: 100 }),
+  body('ciudad').optional({ checkFalsy: true }).trim().isLength({ max: 100 }),
+
   body('favoriteGeneros')
-    .optional()
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 500 }),
+
+  
+  body('favoriteBookThisMonth')
+    .optional({ checkFalsy: true })
     .trim()
     .isLength({ max: 500 })
-    .withMessage('Géneros favoritos no puede exceder 500 caracteres'),
-  
+    .withMessage('El título del libro es muy largo'),
+
   body('readingGoal')
-    .optional()
-    .isInt({ min: 1, max: 1000 })
-    .withMessage('Meta de lectura debe ser entre 1 y 1000 libros'),
-  
-  body('isProfilePublic')
-    .optional()
-    .isBoolean()
-    .withMessage('isProfilePublic debe ser true o false'),
-  
-  body('showLocation')
-    .optional()
-    .isBoolean()
-    .withMessage('showLocation debe ser true o false'),
-  
-  body('showStats')
-    .optional()
-    .isBoolean()
-    .withMessage('showStats debe ser true o false'),
-  
+    .optional({ checkFalsy: true })
+    .isInt({ min: 1, max: 1000 }),
+
+  body('isProfilePublic').optional({ checkFalsy: true }).isBoolean(),
+  body('showLocation').optional({ checkFalsy: true }).isBoolean(),
+  body('showStats').optional({ checkFalsy: true }).isBoolean(),
+  body('showReadingActivity').optional({ checkFalsy: true }).isBoolean(), // Agregado por si acaso
+
   handleValidationErrors
 ];
 
@@ -158,41 +130,13 @@ const updateProfileValidation = [
  * Todos los campos son booleanos
  */
 const updateNotificationSettingsValidation = [
-  body('emailEnabled')
-    .optional()
-    .isBoolean()
-    .withMessage('emailEnabled debe ser true o false'),
-  
-  body('pushEnabled')
-    .optional()
-    .isBoolean()
-    .withMessage('pushEnabled debe ser true o false'),
-  
-  body('friendRequests')
-    .optional()
-    .isBoolean()
-    .withMessage('friendRequests debe ser true o false'),
-  
-  body('groupInvites')
-    .optional()
-    .isBoolean()
-    .withMessage('groupInvites debe ser true o false'),
-  
-  body('newMessages')
-    .optional()
-    .isBoolean()
-    .withMessage('newMessages debe ser true o false'),
-  
-  body('readingReminders')
-    .optional()
-    .isBoolean()
-    .withMessage('readingReminders debe ser true o false'),
-  
-  body('achievements')
-    .optional()
-    .isBoolean()
-    .withMessage('achievements debe ser true o false'),
-  
+  body('emailEnabled').optional({ checkFalsy: true }).isBoolean(),
+  body('pushEnabled').optional({ checkFalsy: true }).isBoolean(),
+  body('friendRequests').optional({ checkFalsy: true }).isBoolean(),
+  body('groupInvites').optional({ checkFalsy: true }).isBoolean(),
+  body('newMessages').optional({ checkFalsy: true }).isBoolean(),
+  body('readingReminders').optional({ checkFalsy: true }).isBoolean(),
+  body('achievements').optional({ checkFalsy: true }).isBoolean(),
   handleValidationErrors
 ];
 
@@ -208,30 +152,17 @@ const updateNotificationSettingsValidation = [
  * porque está relacionado con la gestión del perfil
  */
 const changePasswordValidation = [
-  body('currentPassword')
-    .notEmpty()
-    .withMessage('Contraseña actual es requerida'),
-  
+  body('currentPassword').notEmpty().withMessage('Contraseña actual requerida'),
   body('newPassword')
-    .isLength({ min: 6 })
-    .withMessage('Nueva contraseña debe tener al menos 6 caracteres')
-    .matches(/[A-Z]/)
-    .withMessage('Nueva contraseña debe contener al menos una mayúscula')
-    .matches(/[a-z]/)
-    .withMessage('Nueva contraseña debe contener al menos una minúscula')
-    .matches(/[0-9]/)
-    .withMessage('Nueva contraseña debe contener al menos un número'),
-  
+    .isLength({ min: 6 }).withMessage('Mínimo 6 caracteres')
+    .matches(/[A-Z]/).withMessage('Falta mayúscula')
+    .matches(/[a-z]/).withMessage('Falta minúscula')
+    .matches(/[0-9]/).withMessage('Falta número'),
   body('confirmPassword')
-    .notEmpty()
-    .withMessage('Confirmación de contraseña es requerida')
     .custom((value, { req }) => {
-      if (value !== req.body.newPassword) {
-        throw new Error('Las contraseñas no coinciden');
-      }
+      if (value !== req.body.newPassword) throw new Error('No coinciden');
       return true;
     }),
-  
   handleValidationErrors
 ];
 

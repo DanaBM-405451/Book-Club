@@ -131,7 +131,40 @@ services:
           memory: 512M
         reservations:
           cpus: '0.25'
-          memory: 256M        
+          memory: 256M  
+
+  # Social Database
+ 
+  social-db:
+    image: mysql:8.0
+    container_name: book-club-social-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: social_db
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3311:3306"  # Puerto externo 3311, interno 3306
+    volumes:
+      - social_db_data:/var/lib/mysql
+    networks:
+      - book-club-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # LÍMITES DE RECURSOS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M      
 
   # =====================================================
   # MICROSERVICIOS
@@ -226,7 +259,7 @@ services:
     environment:
       - NODE_ENV=${NODE_ENV}
       - PORT=3003
-      - DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@library-db:3306/library_db  # ✅ CORREGIDO: 3306
+      - DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@library-db:3306/library_db  
       - JWT_SECRET=${JWT_SECRET}
       - AUTH_SERVICE_URL=http://auth-service:3001
       - CORS_ORIGIN=${CORS_ORIGIN}
@@ -243,6 +276,50 @@ services:
       - book-club-network
     volumes:
       - ./library-service:/app
+      - /app/node_modules
+    command: npm run dev
+    # LÍMITES DE RECURSOS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # Social Service
+  social-service:
+    build:
+      context: ./social-service
+      dockerfile: Dockerfile
+    container_name: book-club-social-service
+    restart: unless-stopped
+    ports:
+      - "3005:3005"
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - PORT=3005
+      - DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@social-db:3306/social_db
+      - JWT_SECRET=${JWT_SECRET}
+      - CORS_ORIGIN=${CORS_ORIGIN}
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - USER_SERVICE_URL=http://user-service:3002
+      - LIBRARY_SERVICE_URL=http://library-service:3003
+      - GAMIFICATION_SERVICE_URL=http://gamification-service:3004
+    depends_on:
+      social-db:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+      library-service:
+        condition: service_started
+    networks:
+      - book-club-network
+    volumes:
+      - ./social-service:/app
       - /app/node_modules
     command: npm run dev
     # LÍMITES DE RECURSOS
@@ -329,6 +406,8 @@ volumes:
   library_db_data: 
     driver: local
   gamification_db_data:
+    driver: local
+  social_db_data:        
     driver: local
 
 # =====================================================

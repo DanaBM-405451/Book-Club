@@ -1,15 +1,109 @@
 // library-service/src/services/book.service.js
 
 const prisma = require('../config/database');
+const { uploadBookCover, uploadBookFile } = require('../utils/cloudinary.utils');
 
 class BookService {
   /**
    * Crear nuevo libro y agregarlo a la biblioteca del usuario
    */
+async createBook(userId, bookData, files = {}) {
+    console.log('📚 Service - Creating book');
+    console.log('📦 bookData:', bookData);
+    console.log('📁 files:', Object.keys(files));
 
+    // Validar campos requeridos
+    if (!bookData.titulo || bookData.titulo.trim() === '') {
+      throw new Error('El título es requerido');
+    }
+    if (!bookData.autor || bookData.autor.trim() === '') {
+      throw new Error('El autor es requerido');
+    }
+
+    // ✅ Validar que source sea un valor válido del enum
+  const validSources = ['GOOGLE_BOOKS', 'MANUAL', 'ISBN', 'COMMUNITY', 'PDF', 'EPUB'];
+  if (bookData.source && !validSources.includes(bookData.source)) {
+    console.error('❌ Invalid source:', bookData.source);
+    throw new Error(`Source inválido: ${bookData.source}. Valores válidos: ${validSources.join(', ')}`);
+  }
+
+    let coverImageUrl = bookData.coverImageUrl || null;
+    let pdfFileUrl = null;
+    let epubFileUrl = null;
+
+    // Subir portada si existe
+    if (files.cover && files.cover[0]) {
+      console.log('📤 Uploading cover to Cloudinary...');
+      const tempId = `temp_${Date.now()}`;
+      coverImageUrl = await uploadBookCover(files.cover[0].buffer, tempId);
+    }
+
+    // Crear libro en BD
+    const book = await prisma.book.create({
+      data: {
+        titulo: bookData.titulo.trim(),
+        subtitulo: bookData.subtitulo?.trim() || null,
+        autor: bookData.autor.trim(),
+        descripcion: bookData.descripcion?.trim() || null,
+        pageCount: bookData.pageCount ? parseInt(bookData.pageCount) : null,
+        categorias: bookData.categorias?.trim() || null,
+        idioma: bookData.idioma || 'es',
+        isbn10: bookData.isbn10?.trim() || null,
+        isbn13: bookData.isbn13?.trim() || null,
+        coverImageUrl: coverImageUrl,
+        publicacion: bookData.publicacion?.trim() || null,
+        fechaPublicacion: bookData.fechaPublicacion?.trim() || null,
+        source: bookData.source  || null,
+        googleBookId: bookData.googleBookId || null,
+        uploadedByUserId: userId,
+        isPublic: true,
+        isDeleted: false,
+      },
+    });
+
+    console.log('✅ Book created with ID:', book.id);
+
+    // Subir PDF si existe
+    if (files.pdf && files.pdf[0]) {
+      console.log('📤 Uploading PDF to Cloudinary...');
+      pdfFileUrl = await uploadBookFile(files.pdf[0].buffer, book.id, 'pdf');
+      await prisma.book.update({
+        where: { id: book.id },
+        data: { pdfFileUrl },
+      });
+      console.log('✅ PDF uploaded:', pdfFileUrl);
+    }
+
+    // Subir EPUB si existe
+    if (files.epub && files.epub[0]) {
+      console.log('📤 Uploading EPUB to Cloudinary...');
+      epubFileUrl = await uploadBookFile(files.epub[0].buffer, book.id, 'epub');
+      await prisma.book.update({
+        where: { id: book.id },
+        data: { epubFileUrl },
+      });
+      console.log('✅ EPUB uploaded:', epubFileUrl);
+    }
+
+    // Crear UserBook
+    const userBook = await prisma.userBook.create({
+      data: {
+        userId,
+        bookId: book.id,
+        totalPages: book.pageCount || 0,
+        status: bookData.shelf || 'QUIERO_LEER',
+      },
+    });
+
+    console.log('✅ UserBook created');
+
+    return { book, userBook };
+  
+  }
  /**
    * Crear nuevo libro
    */
+  /*
   async createBook(userId, bookData) {
     let coverImageUrl = bookData.coverImageUrl;
     let pdfFileUrl = null;
@@ -73,7 +167,8 @@ class BookService {
 
     return { book, userBook };
   }
-
+  */
+/*
 
   async createBook(userId, bookData) {
     // Crear libro
@@ -108,6 +203,7 @@ class BookService {
 
     return { book, userBook };
   }
+    */
 
   /**
    * Obtener libros del usuario con filtros
@@ -187,8 +283,68 @@ class BookService {
   }
 
   /**
-   * Actualizar libro
+   * Actualizar libro (Datos generales, portada y estado/tags del usuario)
    */
+  async updateBook(userId, bookId, data, files = {}) {
+    // 1. Verificar que el usuario tenga este libro
+    const userBook = await this.getUserBook(userId, bookId);
+
+    // 2. Lógica de subida de Portada (si se envió una nueva)
+    let coverImageUrl = undefined;
+    if (files.cover && files.cover[0]) {
+      console.log('📤 Updating cover in Cloudinary...');
+      const tempId = `book_${bookId}_${Date.now()}`;
+      coverImageUrl = await uploadBookCover(files.cover[0].buffer, tempId);
+    }
+
+    // 3. Preparar datos para actualizar la tabla BOOK (Global)
+    // Solo actualizamos si vienen datos definidos
+    const bookUpdateData = {};
+    if (data.titulo) bookUpdateData.titulo = data.titulo.trim();
+    if (data.autor) bookUpdateData.autor = data.autor.trim();
+    if (data.descripcion) bookUpdateData.descripcion = data.descripcion.trim();
+    if (coverImageUrl) bookUpdateData.coverImageUrl = coverImageUrl;
+
+    if (Object.keys(bookUpdateData).length > 0) {
+      await prisma.book.update({
+        where: { id: parseInt(bookId) },
+        data: bookUpdateData,
+      });
+    }
+
+    // 4. Preparar datos para actualizar la tabla USERBOOK (Personal)
+    const userBookUpdateData = {};
+    
+    // Validar y asignar Status
+    if (data.status) {
+       const validShelves = ['QUIERO_LEER', 'LEYENDO', 'COMPLETADO', 'EN_ESPERA', 'ABANDONADO'];
+       if (validShelves.includes(data.status)) {
+         userBookUpdateData.status = data.status;
+         // Actualizar fechas automáticamente
+         if (data.status === 'LEYENDO' && !userBook.startedAt) userBookUpdateData.startedAt = new Date();
+         if (data.status === 'COMPLETADO') userBookUpdateData.finishedAt = new Date();
+       }
+    }
+
+    // Asignar Tags
+    if (data.tags !== undefined) { // Permitimos string vacío para borrar tags
+      userBookUpdateData.tags = data.tags;
+    }
+
+    if (Object.keys(userBookUpdateData).length > 0) {
+      await prisma.userBook.update({
+        where: { id: userBook.id },
+        data: userBookUpdateData,
+      });
+    }
+
+    // 5. Devolver el libro actualizado completo
+    return this.getUserBook(userId, bookId);
+  }
+
+  /**
+   * Actualizar libro
+   *
   async updateBook(userId, bookId, updateData) {
     const userBook = await this.getUserBook(userId, bookId);
 
@@ -198,7 +354,7 @@ class BookService {
     });
 
     return updatedBook;
-  }
+  }*/
 
   /**
    * Eliminar libro (soft delete)

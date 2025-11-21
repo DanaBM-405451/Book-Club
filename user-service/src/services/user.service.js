@@ -159,7 +159,7 @@ class UserService {
     const updateData = {};
     
     if (data.nombre !== undefined) updateData.nombre = data.nombre;
-    if (data.apellido !== undefined) updateData.apellido = data.apellido
+    if (data.apellido !== undefined) updateData.apellido = data.apellido;
     if (data.username !== undefined) updateData.username = data.username;
     if (data.bio !== undefined) updateData.bio = data.bio;
     

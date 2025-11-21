@@ -1,10 +1,9 @@
 // user-service/src/index.js
-// user-service/src/index.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const userRoutes = require('./routes/user.route'); // ✅ Corregido
-const errorHandler = require('./middleware/errorHandler'); // ✅ Corregido
+const userRoutes = require('./routes/user.route.js'); 
+const errorHandler = require('./middleware/errorHandler.js'); 
 
 const app = express();
 const PORT = process.env.PORT || 3002;

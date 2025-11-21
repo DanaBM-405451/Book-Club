@@ -1,5 +1,3 @@
-// library-service/src/index.js
-
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -12,8 +10,26 @@ const app = express();
 const PORT = process.env.PORT || 3003;
 
 // Middleware globales
-app.use(cors());
-app.use(express.json());
+//app.use(cors());
+// ✅ CONFIGURAR CORS CORRECTAMENTE
+app.use(cors({
+  origin: [
+    'http://localhost:3000',  // Frontend Next.js
+    'http://localhost:4000',  // Gateway
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.use((req, res, next) => {
+  // Solo parsear JSON si NO es multipart
+  if (req.headers['content-type']?.includes('multipart/form-data')) {
+    return next();
+  }
+  express.json()(req, res, next);
+});
+
+//app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Health check
@@ -65,6 +81,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 /*

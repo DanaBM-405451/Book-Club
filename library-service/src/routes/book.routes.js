@@ -4,9 +4,65 @@ const express = require('express');
 const router = express.Router();
 const bookController = require('../controllers/book.controller');
 const { authenticate } = require('../middleware/auth.middleware');
+const { upload } = require('../utils/cloudinary.utils');
 
 // Todas las rutas requieren autenticación
 router.use(authenticate);
+
+// CRUD Libros
+
+// ✅ 1. CREATE: Mantén solo esta definición 
+router.post(
+  '/books',
+  upload.fields([
+    { name: 'cover', maxCount: 1 },
+    { name: 'pdf', maxCount: 1 },
+    { name: 'epub', maxCount: 1 },
+  ]),
+  bookController.createBook
+);
+
+router.get('/books', bookController.getUserBooks);
+router.get('/books/stats', bookController.getLibraryStats);
+router.get('/books/:id', bookController.getUserBook);
+
+// ✅ 2. UPDATE: Agregamos el middleware upload para recibir la portada ('cover')
+router.put(
+  '/books/:id', 
+  upload.fields([{ name: 'cover', maxCount: 1 }]), 
+  bookController.updateBook
+);
+
+router.delete('/books/:id', bookController.deleteBook);
+
+// Acciones sobre libros
+router.put('/books/:id/rating', bookController.rateBook);
+router.put('/books/:id/progress', bookController.updateProgress);
+router.put('/books/:id/shelf', bookController.changeShelf);
+router.put('/books/:id/tags', bookController.manageTags);
+
+module.exports = router;
+/*
+const express = require('express');
+const router = express.Router();
+const bookController = require('../controllers/book.controller');
+const { authenticate } = require('../middleware/auth.middleware');
+const { upload } = require('../utils/cloudinary.utils');
+
+
+// Todas las rutas requieren autenticación
+router.use(authenticate);
+
+// CRUD Libros
+router.post(
+  '/books',
+  upload.fields([
+    { name: 'cover', maxCount: 1 },
+    { name: 'pdf', maxCount: 1 },
+    { name: 'epub', maxCount: 1 },
+  ]),
+  bookController.createBook
+);
 
 // CRUD Libros
 router.post('/books', bookController.createBook);
@@ -23,7 +79,7 @@ router.put('/books/:id/shelf', bookController.changeShelf);
 router.put('/books/:id/tags', bookController.manageTags);
 
 module.exports = router;
-
+*/
 
 /*
 const express = require('express');

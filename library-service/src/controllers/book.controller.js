@@ -1,28 +1,28 @@
 // library-service/src/controllers/book.controller.js
 
-// library-service/src/controllers/book.controller.js
-
 const bookService = require('../services/book.service');
+
 
 class BookController {
   async createBook(req, res, next) {
     try {
-      // 🔍 DEBUG
-      console.log('📚 req.user:', req.user);
-      console.log('📚 req.user.userId:', req.user?.userId);
-      console.log('📚 req.user.id:', req.user?.id);
+        const userId = req.user.id;
+        const bookData = req.body;
+    
       
-      // ✅ USAR EL CAMPO CORRECTO
-      const userId = req.user.userId || req.user.id;
-      
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          message: 'userId no encontrado en token'
-        });
-      }
+      // ✅ Multer procesa los archivos y los guarda en req.files
+      const files = req.files || {};
 
-      const result = await bookService.createBook(userId, req.body);
+      console.log('📚 Controller - Creating book');
+      console.log('👤 User ID:', userId);
+      console.log('📦 Body:', bookData);
+      console.log('📁 Files:', {
+        cover: files.cover ? `${files.cover[0].originalname} (${files.cover[0].size} bytes)` : 'none',
+        pdf: files.pdf ? `${files.pdf[0].originalname} (${files.pdf[0].size} bytes)` : 'none',
+        epub: files.epub ? `${files.epub[0].originalname} (${files.epub[0].size} bytes)` : 'none',
+      });
+
+      const result = await bookService.createBook(userId, bookData, files);
 
       res.status(201).json({
         success: true,
@@ -30,8 +30,11 @@ class BookController {
         data: result,
       });
     } catch (error) {
+      console.error('❌ Controller error:', error);
       next(error);
     }
+  
+
   }
 
   async getUserBooks(req, res, next) {
@@ -75,19 +78,26 @@ class BookController {
     try {
       const userId = req.user.userId || req.user.id;
       const { id } = req.params;
+      
+      // 1. Extraer archivos (Multer los pone aquí)
+      const files = req.files || {};
+      
+      console.log(`🔄 Updating book ${id} for user ${userId}`);
+      if (files.cover) console.log('📷 New cover received');
 
-      const book = await bookService.updateBook(userId, id, req.body);
+      // 2. Pasar 'files' al servicio junto con el body
+      const book = await bookService.updateBook(userId, id, req.body, files);
 
       res.json({
         success: true,
-        message: 'Libro actualizado',
-        data: { book },
+        message: 'Libro actualizado correctamente',
+        data: { userBook: book }, // El servicio devuelve el userBook actualizado
       });
     } catch (error) {
       next(error);
     }
   }
-
+  
   async deleteBook(req, res, next) {
     try {
       const userId = req.user.userId || req.user.id;
