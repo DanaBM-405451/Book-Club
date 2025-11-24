@@ -1,5 +1,504 @@
-// src/app/reader/[id]/page.jsx
+'use client';
 
+import { useEffect, useState, useRef } from 'react';
+import { useRouter, useParams } from 'next/navigation';
+import { 
+  ArrowLeft, Menu, X, Trash2, Loader2, ChevronLeft, ChevronRight, Palette, 
+  ZoomIn, ZoomOut, StickyNote, Type, BookmarkPlus
+} from 'lucide-react';
+import api from '@/lib/api';
+import toast, { Toaster } from 'react-hot-toast';
+import AdobePdfViewer from '@/components/books/AdobePdfViewer';
+
+// --- TEMAS (Configuración Visual) ---
+const THEMES = {
+  light: {
+    name: 'Claro',
+    style: { body: { color: '#000000', background: '#ffffff' } },
+    bgClass: 'bg-white text-neutral-900'
+  },
+  sepia: {
+    name: 'Crema',
+    style: { body: { color: '#5b4636', background: '#f4ecd8' } },
+    bgClass: 'bg-[#f4ecd8] text-[#5b4636]'
+  },
+  dark: {
+    name: 'Oscuro',
+    style: { body: { color: '#c9c9c9', background: '#1a1a1a' } },
+    bgClass: 'bg-[#1a1a1a] text-[#c9c9c9]'
+  }
+};
+
+export default function ReaderPage() {
+  const router = useRouter();
+  const params = useParams();
+  
+  // --- ESTADOS DE DATOS ---
+  const [book, setBook] = useState(null);
+  const [notes, setNotes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  // --- UI LECTOR ---
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [locationStr, setLocationStr] = useState('');
+  
+  // Menú Flotante de Selección
+  const [selectionMenu, setSelectionMenu] = useState({ show: false, x: 0, y: 0, cfiRange: null, text: '' });
+  
+  // Modal de Nota
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [noteContent, setNoteContent] = useState('');
+  const [currentCfiForNote, setCurrentCfiForNote] = useState(null); // CFI específico (texto) o null (página)
+
+  // Configuración de Lectura
+  const [currentTheme, setCurrentTheme] = useState('light');
+  const [fontSize, setFontSize] = useState(100); // Porcentaje
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+
+  // Refs
+  const epubContainerRef = useRef(null); 
+  const renditionRef = useRef(null);
+  const bookRef = useRef(null);
+  const isRendered = useRef(false);
+
+  // 1. CARGA INICIAL
+  useEffect(() => { loadBookData(); }, []);
+
+  // 2. INICIAR EPUB
+  useEffect(() => {
+    if (book?.epubFileUrl && epubContainerRef.current && !isRendered.current) {
+      setTimeout(() => initEpub(), 200);
+    }
+    return () => {
+      if (bookRef.current) {
+        bookRef.current.destroy();
+        isRendered.current = false;
+      }
+    };
+  }, [book?.epubFileUrl]);
+
+  const loadBookData = async () => {
+    try {
+      setLoading(true);
+      const [bookRes, notesRes] = await Promise.all([
+        api.get(`/api/library/books/${params.id}`),
+        api.get(`/api/library/books/${params.id}/notes`)
+      ]);
+      setBook(bookRes.data.data.userBook.book);
+      setNotes(notesRes.data.data.notes || []);
+    } catch (error) {
+      console.error(error);
+      router.push('/dashboard');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const initEpub = async () => {
+    try {
+      const ePub = (await import('epubjs')).default;
+      const response = await fetch(book.epubFileUrl);
+      const arrayBuffer = await response.arrayBuffer();
+      
+      const epubBook = ePub(arrayBuffer);
+      bookRef.current = epubBook;
+      await epubBook.ready;
+
+      const { clientWidth, clientHeight } = epubContainerRef.current;
+
+      const rendition = epubBook.renderTo(epubContainerRef.current, {
+        width: clientWidth,
+        height: clientHeight,
+        flow: 'paginated',
+        manager: 'default',
+        allowScriptedContent: false,
+      });
+
+      renditionRef.current = rendition;
+
+      // REGISTRAR TEMAS
+      rendition.themes.register('light', THEMES.light.style);
+      rendition.themes.register('sepia', THEMES.sepia.style);
+      rendition.themes.register('dark', THEMES.dark.style);
+      rendition.themes.select('light');
+      rendition.themes.fontSize('100%');
+
+      // Ir a la última página leída
+      const savedCfi = book.userBook?.currentPage;
+      if (savedCfi && savedCfi.startsWith('epubcfi')) {
+        await rendition.display(savedCfi);
+      } else {
+        await rendition.display();
+      }
+
+      // --- EVENTOS ---
+      rendition.on('relocated', (location) => {
+        setSelectionMenu(prev => ({ ...prev, show: false }));
+        if (location.start) {
+          const percent = Math.floor(location.start.percentage * 100);
+          setLocationStr(`${percent}%`);
+          updateProgress(location.start.cfi);
+        }
+      });
+
+      // DETECCIÓN DE SELECCIÓN
+      rendition.on('selected', (cfiRange, contents) => {
+        const selection = contents.window.getSelection();
+        if (selection.toString().length > 0) {
+          const range = selection.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          const iframeRect = epubContainerRef.current.querySelector('iframe').getBoundingClientRect();
+          
+          setSelectionMenu({
+            show: true,
+            x: rect.left + iframeRect.left + (rect.width / 2),
+            y: rect.top + iframeRect.top - 10,
+            cfiRange: cfiRange,
+            text: selection.toString()
+          });
+        }
+      });
+
+      rendition.on('click', () => {
+        setSelectionMenu(prev => ({ ...prev, show: false }));
+        setShowSettingsMenu(false);
+      });
+
+      // --- INYECCIÓN DE ESTILOS (AQUÍ MEJORAMOS EL SUBRAYADO) ---
+      rendition.hooks.content.register((contents) => {
+        const style = contents.document.createElement('style');
+        style.innerHTML = `
+          ::selection { background: rgba(255, 215, 0, 0.3); }
+          
+          /* MEJORA DE SUBRAYADO: mix-blend-mode multiplica el color con el texto */
+          .hl-yellow { background-color: rgba(255, 235, 59, 0.5); mix-blend-mode: multiply; }
+          .hl-green { background-color: rgba(76, 175, 80, 0.5); mix-blend-mode: multiply; }
+          .hl-pink { background-color: rgba(240, 98, 146, 0.5); mix-blend-mode: multiply; }
+          
+          /* Corrección para modo oscuro (el multiply oscurece, así que en dark mode usamos opacidad normal) */
+          body[style*="background: rgb(26, 26, 26)"] .hl-yellow { mix-blend-mode: normal; opacity: 0.4; }
+          
+          body { font-family: 'Helvetica', sans-serif !important; line-height: 1.6 !important; } 
+        `;
+        contents.document.head.appendChild(style);
+        
+        contents.document.addEventListener('keydown', (e) => {
+          if (e.key === 'ArrowLeft') rendition.prev();
+          if (e.key === 'ArrowRight') rendition.next();
+        });
+      });
+
+      // Pintar notas existentes
+      notes.forEach(note => {
+        if (note.cfiRange) rendition.annotations.add('highlight', note.cfiRange, {}, null, `hl-${note.color || 'yellow'}`);
+      });
+
+    } catch (error) {
+      console.error("Error EPUB:", error);
+      toast.error("Error al cargar libro");
+    }
+  };
+
+  // --- FUNCIONES UI ---
+
+  const handlePrev = () => renditionRef.current?.prev();
+  const handleNext = () => renditionRef.current?.next();
+
+  const handleZoom = (direction) => {
+    let newSize = fontSize;
+    if (direction === 'in') newSize = Math.min(200, fontSize + 10);
+    if (direction === 'out') newSize = Math.max(50, fontSize - 10);
+    setFontSize(newSize);
+    renditionRef.current?.themes.fontSize(`${newSize}%`);
+  };
+
+  const changeTheme = (themeKey) => {
+    setCurrentTheme(themeKey);
+    renditionRef.current?.themes.select(themeKey);
+  };
+
+  // --- AGREGAR SUBRAYADO SIMPLE ---
+  const addHighlight = async (color) => {
+    if (!selectionMenu.cfiRange) return;
+    
+    renditionRef.current.annotations.add('highlight', selectionMenu.cfiRange, {}, null, `hl-${color}`);
+    renditionRef.current.getContents()[0].window.getSelection().removeAllRanges();
+    setSelectionMenu(prev => ({ ...prev, show: false }));
+
+    try {
+      const res = await api.post(`/api/library/books/${params.id}/notes`, {
+        content: selectionMenu.text, 
+        type: 'HIGHLIGHT', 
+        cfiRange: selectionMenu.cfiRange, 
+        color, 
+        page: 0
+      });
+      setNotes([...notes, res.data.data.note]);
+      toast.success('Subrayado guardado');
+    } catch (e) { toast.error('Error al guardar'); }
+  };
+
+  // --- AGREGAR NOTA (Texto o Página) ---
+  
+  // 1. Abrir desde el botón flotante (Nota sobre texto)
+  const openNoteFromSelection = () => {
+    if (!selectionMenu.cfiRange) return;
+    setCurrentCfiForNote(selectionMenu.cfiRange); // Guardamos el rango exacto
+    setNoteContent('');
+    setShowNoteModal(true);
+    setSelectionMenu(prev => ({ ...prev, show: false }));
+  };
+
+  // 2. Abrir desde la barra superior (Nota de página general)
+  const openNoteFromHeader = () => {
+    // Si es EPUB, intentamos obtener la ubicación actual
+    const currentLocation = renditionRef.current?.location?.start?.cfi;
+    setCurrentCfiForNote(currentLocation || null); // Guardamos la ubicación actual
+    setNoteContent('');
+    setShowNoteModal(true);
+  };
+
+  const saveNote = async () => {
+    if (!noteContent.trim()) return;
+
+    // Si hay un rango seleccionado, lo subrayamos visualmente
+    // Si es nota de página (currentCfiForNote es solo un punto), no subrayamos
+    const isRange = currentCfiForNote && currentCfiForNote.includes(','); 
+
+    if (isRange) {
+      renditionRef.current.annotations.add('highlight', currentCfiForNote, {}, null, 'hl-yellow');
+      // Limpiar selección si existe
+      const selection = renditionRef.current.getContents()[0]?.window.getSelection();
+      if(selection) selection.removeAllRanges();
+    }
+
+    try {
+      const res = await api.post(`/api/library/books/${params.id}/notes`, {
+        content: noteContent, 
+        type: 'NOTE', 
+        cfiRange: currentCfiForNote, // Puede ser rango o punto
+        color: 'yellow', 
+        page: 0
+      });
+      setNotes([...notes, res.data.data.note]);
+      toast.success('Nota guardada');
+      setShowNoteModal(false);
+    } catch (e) { toast.error('Error al guardar nota'); }
+  };
+
+  const updateProgress = async (cfi) => {
+    try { await api.put(`/api/library/books/${params.id}/progress`, { currentPage: cfi, isEpub: true }); } catch (e) {}
+  };
+
+  const deleteAnnotation = async (id, cfiRange) => {
+    try {
+      await api.delete(`/api/library/notes/${id}`);
+      setNotes(notes.filter(n => n.id !== id));
+      if (cfiRange) renditionRef.current?.annotations.remove(cfiRange, 'highlight');
+      toast.success('Eliminado');
+    } catch (e) {}
+  };
+
+  if (loading) return <div className="h-screen bg-neutral-50 flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
+  if (!book) return null;
+
+  return (
+    <>
+      <Toaster position="top-center" />
+      <div className={`h-screen w-screen flex flex-col overflow-hidden transition-colors duration-300 ${THEMES[currentTheme].bgClass}`}>
+        
+        {/* HEADER */}
+        <header className={`h-14 flex items-center justify-between px-4 z-20 shadow-sm flex-shrink-0 border-b ${currentTheme === 'dark' ? 'border-neutral-700 bg-neutral-800' : 'border-neutral-200 bg-white'}`}>
+          
+          {/* Izquierda: Volver + Título */}
+          <div className="flex items-center gap-3">
+            <button onClick={() => router.back()} className="p-2 hover:opacity-70 rounded-full transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h1 className="text-sm font-bold line-clamp-1 max-w-[200px]">{book.titulo}</h1>
+              <p className="text-xs opacity-70">{locationStr || '...'}</p>
+            </div>
+          </div>
+          
+          {/* Derecha: Botones de Acción */}
+          <div className="flex items-center gap-1">
+            
+            {/* 1. BOTÓN NOTA (Página General) - RESTAURADO */}
+            <button 
+              onClick={openNoteFromHeader} 
+              className="p-2 hover:opacity-70 rounded-full"
+              title="Agregar nota en esta página"
+            >
+              <StickyNote className="w-5 h-5" />
+            </button>
+
+            {/* 2. BOTÓN APARIENCIA (AA) */}
+            <div className="relative">
+              <button 
+                onClick={() => setShowSettingsMenu(!showSettingsMenu)} 
+                className={`p-2 hover:opacity-70 rounded-full ${showSettingsMenu ? 'bg-black/10' : ''}`}
+                title="Configuración de lectura"
+              >
+                <Type className="w-5 h-5" />
+              </button>
+
+              {showSettingsMenu && (
+                <div className="absolute right-0 top-full mt-2 bg-white text-black p-4 rounded-xl shadow-xl border border-neutral-200 min-w-[220px] z-50 animate-in fade-in zoom-in-95">
+                  {/* Zoom */}
+                  <div className="flex items-center justify-between mb-4 border-b pb-3 border-neutral-100">
+                    <button onClick={() => handleZoom('out')} className="p-2 hover:bg-neutral-100 rounded-lg"><ZoomOut className="w-4 h-4" /></button>
+                    <span className="font-bold text-sm">{fontSize}%</span>
+                    <button onClick={() => handleZoom('in')} className="p-2 hover:bg-neutral-100 rounded-lg"><ZoomIn className="w-4 h-4" /></button>
+                  </div>
+                  {/* Temas */}
+                  <p className="text-xs text-neutral-400 font-bold mb-2 uppercase">Tema</p>
+                  <div className="flex gap-3 justify-center">
+                    {Object.keys(THEMES).map(key => (
+                      <button 
+                        key={key} 
+                        onClick={() => changeTheme(key)}
+                        className={`w-10 h-10 rounded-full border-2 transition-transform hover:scale-105 ${currentTheme === key ? 'border-primary-500 ring-2 ring-primary-100' : 'border-neutral-200'}`}
+                        style={{ background: THEMES[key].style.body.background }}
+                        title={THEMES[key].name}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* 3. BOTÓN SIDEBAR (Anotaciones) */}
+            <button 
+              onClick={() => setShowSidebar(true)} 
+              className="p-2 hover:opacity-70 rounded-full relative"
+            >
+              <Menu className="w-5 h-5" />
+              {notes.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-primary-500 rounded-full"></span>}
+            </button>
+          </div>
+        </header>
+
+        {/* READER AREA */}
+        <div className="flex-1 relative w-full h-full overflow-hidden flex justify-center">
+          {book.pdfFileUrl ? (
+            <AdobePdfViewer url={book.pdfFileUrl} />
+          ) : (
+            <>
+              {/* Navegación Izquierda */}
+              <button onClick={handlePrev} className="absolute left-0 top-0 bottom-0 w-16 flex items-center justify-start pl-4 z-10 hover:bg-black/5 outline-none group">
+                <ChevronLeft className="w-8 h-8 opacity-20 group-hover:opacity-50 transition-opacity" />
+              </button>
+              
+              {/* Contenedor EPUB */}
+              <div ref={epubContainerRef} className="w-full h-full max-w-4xl shadow-sm" />
+
+              {/* Navegación Derecha */}
+              <button onClick={handleNext} className="absolute right-0 top-0 bottom-0 w-16 flex items-center justify-end pr-4 z-10 hover:bg-black/5 outline-none group">
+                <ChevronRight className="w-8 h-8 opacity-20 group-hover:opacity-50 transition-opacity" />
+              </button>
+
+              {/* MENÚ FLOTANTE DE SELECCIÓN */}
+              {selectionMenu.show && (
+                <div 
+                  className="fixed z-50 bg-neutral-900 text-white rounded-full px-4 py-2 flex items-center gap-3 shadow-2xl animate-in zoom-in-90"
+                  style={{ top: selectionMenu.y, left: selectionMenu.x, transform: 'translate(-50%, -100%)' }}
+                >
+                  <button onClick={() => addHighlight('yellow')} className="w-5 h-5 rounded-full bg-yellow-400 hover:scale-125 border border-white/20" />
+                  <button onClick={() => addHighlight('green')} className="w-5 h-5 rounded-full bg-green-500 hover:scale-125 border border-white/20" />
+                  <button onClick={() => addHighlight('pink')} className="w-5 h-5 rounded-full bg-pink-500 hover:scale-125 border border-white/20" />
+                  
+                  <div className="w-px h-4 bg-white/20" />
+                  
+                  <button onClick={openNoteFromSelection} className="hover:text-primary-300 transition-colors flex items-center gap-1 text-sm font-medium">
+                    <StickyNote className="w-4 h-4" /> Nota
+                  </button>
+                  
+                  <div className="w-px h-4 bg-white/20" />
+                  
+                  <button onClick={() => setSelectionMenu(prev => ({...prev, show: false}))}>
+                    <X className="w-4 h-4 text-neutral-400 hover:text-white" />
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* SIDEBAR */}
+          {showSidebar && (
+             <div className="absolute inset-y-0 right-0 w-80 bg-white text-black border-l shadow-2xl z-40 flex flex-col animate-in slide-in-from-right">
+               <div className="p-4 border-b flex justify-between items-center bg-neutral-50">
+                 <h2 className="font-bold">Anotaciones</h2>
+                 <button onClick={() => setShowSidebar(false)}><X className="w-5 h-5" /></button>
+               </div>
+               <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                 {notes.length === 0 && <p className="text-center text-neutral-400 text-sm mt-10">No hay notas ni subrayados.</p>}
+                 {notes.map(note => (
+                   <div key={note.id} onClick={() => { if(note.cfiRange) renditionRef.current?.display(note.cfiRange); setShowSidebar(false); }}
+                        className="p-3 bg-neutral-50 rounded border-l-4 cursor-pointer hover:bg-neutral-100 relative group"
+                        style={{ borderColor: note.color === 'green' ? '#4ade80' : note.color === 'pink' ? '#f472b6' : '#facc15' }}>
+                     
+                     <div className="flex justify-between items-start mb-1">
+                       <span className="text-xs font-bold text-neutral-500 uppercase">
+                         {note.type === 'NOTE' ? 'Nota' : 'Subrayado'}
+                       </span>
+                       {note.type === 'NOTE' && <StickyNote className="w-3 h-3 text-neutral-400" />}
+                     </div>
+
+                     <p className="text-sm line-clamp-3 text-neutral-800 italic">"{note.content}"</p>
+                     
+                     <div className="flex justify-between mt-2 border-t border-neutral-200 pt-2">
+                       <span className="text-xs text-neutral-400">{new Date(note.createdAt).toLocaleDateString()}</span>
+                       <button onClick={(e) => { e.stopPropagation(); deleteAnnotation(note.id, note.cfiRange); }}>
+                         <Trash2 className="w-3 h-3 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                       </button>
+                     </div>
+                   </div>
+                 ))}
+               </div>
+             </div>
+          )}
+        </div>
+
+        {/* MODAL PARA AGREGAR NOTA */}
+        {showNoteModal && (
+          <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95">
+              <h3 className="font-heading text-lg mb-4 text-neutral-900 flex items-center gap-2">
+                <StickyNote className="w-5 h-5 text-primary-500" />
+                Agregar Nota
+              </h3>
+              <textarea 
+                className="w-full h-32 p-3 border border-neutral-200 rounded-lg font-ui text-neutral-800 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+                placeholder="Escribe tu pensamiento sobre esto..."
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                autoFocus
+              />
+              <div className="flex gap-3 mt-4">
+                <button 
+                  onClick={() => setShowNoteModal(false)}
+                  className="flex-1 py-2 text-neutral-600 hover:bg-neutral-100 rounded-lg transition-colors font-medium"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={saveNote}
+                  disabled={!noteContent.trim()}
+                  className="flex-1 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium disabled:opacity-50"
+                >
+                  Guardar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </div>
+    </>
+  );
+}
+/*
 'use client';
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
@@ -20,7 +519,7 @@ import {
   Loader2,
   Book,
 } from 'lucide-react';
-import dynamic from 'next/dynamic';
+//import dynamic from 'next/dynamic';
 import api from '@/lib/api';
 import toast, { Toaster } from 'react-hot-toast';
 import AdobePdfViewer from '@/components/books/AdobePdfViewer';
@@ -34,10 +533,18 @@ export default function ReaderPage() {
   const [loading, setLoading] = useState(true);
   const [loadingAnnotations, setLoadingAnnotations] = useState(false);
   
-  // PDF state
+ /* // PDF state
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
-  const [scale, setScale] = useState(1.2);
+  //  1. NUEVO: Referencia para guardar la página actual "en vivo"
+  // Esto evita que al cerrar la página se guarde el valor inicial "1"
+  const currentPageRef = useRef(1);
+  const [scale, setScale] = useState(1.2);*/
+/*
+// PDF state
+  const [pageNumber, setPageNumber] = useState(1);
+  const currentPageRef = useRef(1); // Referencia "viva" de la página
+
   
   // EPUB state
   const epubViewerRef = useRef(null);
@@ -60,6 +567,9 @@ export default function ReaderPage() {
   const [editingNote, setEditingNote] = useState(null);
   
   const [sessionStartTime, setSessionStartTime] = useState(null);
+  
+//  REFERENCIA PARA EL TIMER DE GUARDADO
+  const saveTimeoutRef = useRef(null);
 
   useEffect(() => {
     loadBook();
@@ -97,6 +607,26 @@ export default function ReaderPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book?.epubFileUrl, epubViewerRef.current]);
+
+  // ✅ FUNCIÓN QUE MANEJA EL CAMBIO DE PÁGINA (Desde Adobe)
+  const handleAdobePageChange = (page) => {
+    console.log(`📄 Adobe reporta página: ${page}`);
+    
+    // 1. Actualizar estado visual localmente
+    setPageNumber(page);
+    currentPageRef.current = page; //actualiza referencia
+
+    // 2. Debounce: Limpiar timer anterior si el usuario sigue pasando páginas rápido
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // 3. Configurar nuevo timer: Guardar en BD después de 1 segundo de inactividad
+    saveTimeoutRef.current = setTimeout(() => {
+      console.log(`💾 Guardando progreso en BD: Página ${page}`);
+      updateProgress(page);
+    }, 1000);
+  };
 
   const loadBook = async () => {
     try {
@@ -138,7 +668,7 @@ export default function ReaderPage() {
     }
   };
 
-  const recordSession = async () => {
+  /*const recordSession = async () => {
     if (!sessionStartTime || !book) return;
 
     try {
@@ -146,8 +676,9 @@ export default function ReaderPage() {
       const durationMinutes = Math.floor((endTime - sessionStartTime) / 60000);
 
       if (durationMinutes < 1) return;
+      const lastPageRead = currentPageRef.current;
 
-      const currentPage = book.epubFileUrl ? epubPageNumber : pageNumber;
+      //const currentPage = book.epubFileUrl ? epubPageNumber : pageNumber;
 
       await api.post(`/api/library/books/${params.id}/reading-session`, {
         startPage: 1,
@@ -157,11 +688,31 @@ export default function ReaderPage() {
         deviceType: 'web',
       });
 
-      console.log('✅ Sesión de lectura registrada');
+      console.log(`✅ Sesión registrada: Pág 1 a ${lastPageRead} (${durationMinutes} min)`);
     } catch (error) {
       console.error('Error recording session:', error);
     }
   };
+  const recordSession = async () => {
+  if (!book) return;
+
+  const now = Date.now();
+  const minutesRead = Math.floor((now - sessionStartTime.current) / 60000);
+
+  if (minutesRead < 1) return;
+
+  try {
+    await api.post('/api/gamification/pages', {
+      bookId: book.id,
+      pagesRead: 0, // ✅ Cambiar según tu lógica
+      minutesRead,
+    });
+
+    sessionStartTime.current = now;
+  } catch (error) {
+    console.error('Error recording session:', error);
+  }
+};
 
   // ✅ 3. EPUB VIEWER LÓGICA (ArrayBuffer + Scrolled)
   const initEpubViewer = async () => {
@@ -204,6 +755,7 @@ export default function ReaderPage() {
       newRendition.on('relocated', (location) => {
         setCurrentLocation(location);
         
+        
         // Calcular porcentaje
         const percentage = location.start.percentage || 0;
         // Estimar página actual basada en porcentaje
@@ -212,6 +764,7 @@ export default function ReaderPage() {
         console.log(`📍 Progreso: ${(percentage * 100).toFixed(1)}% (Pág est: ${estimatedPage})`);
         
         setEpubPageNumber(estimatedPage);
+        currentPageRef.current = estimatedPage; //actualiza referencia 
         updateProgress(estimatedPage); // Guardar en backend
       });
 
@@ -438,7 +991,7 @@ export default function ReaderPage() {
       <Toaster position="top-center" />
 
       <div className="min-h-screen bg-neutral-900 text-white">
-        {/* Header */}
+        {/* Header *//*}
         <header className="bg-neutral-800 border-b border-neutral-700 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-4 flex-1 min-w-0">
             <button
@@ -454,12 +1007,12 @@ export default function ReaderPage() {
               <h1 className="font-heading text-lg line-clamp-1">{book.titulo}</h1>
               <p className="text-sm text-neutral-400 font-ui line-clamp-1">{book.autor}</p>
               
-              {/* Información de progreso EPUB */}
+              {/* Información de progreso EPUB *//*}
               {isEpub && epubMetadata && (
                 <div className="flex items-center gap-2 text-xs text-neutral-500 mt-1">
                   <Book className="w-3 h-3" />
                   <span>{epubMetadata.language || 'EPUB'}</span>
-                  {/* Mostramos página estimada */}
+                  {/* Mostramos página estimada *//*}
                   <span>• Pág. aprox. {epubPageNumber}</span>
                 </div>
               )}
@@ -503,25 +1056,19 @@ export default function ReaderPage() {
         </header>
 
         <div className="flex h-[calc(100vh-60px)]">
-          {/* Contenido principal */}
+          {/* Contenido principal *//*}
           <div className="flex-1 overflow-hidden bg-neutral-900">
             {isPdf ? (
-              <AdobePdfViewer 
-                url={book.pdfFileUrl} 
-                title={book.titulo}
-                // ✅ Pasamos la página guardada para que retome donde dejó
-                initialPage={book.userBook?.currentPage || 1} 
-                // ✅ Pasamos la función para guardar el progreso
-                onPageChange={(page) => {
-                   // Usamos el state local para visualización inmediata si lo usas
-                   setPageNumber(page); 
-                   // Llamamos a la API (tu función updateProgress ya existe en este archivo)
-                   updateProgress(page); 
-                }}
-              />
+            // ✅ COMPONENTE ACTUALIZADO
+            <AdobePdfViewer 
+              url={book.pdfFileUrl} 
+              title={book.titulo}
+              initialPage={book.userBook?.currentPage || 1}
+              onPageChange={handleAdobePageChange}
+            />
             ) : isEpub ? (
               <div className="h-full flex flex-col">
-                {/* EPUB Viewer Container */}
+                {/* EPUB Viewer Container *//*}
                 <div className="flex-1 bg-neutral-900 relative overflow-hidden">
                   {!epubReady && (
                     <div className="absolute inset-0 flex items-center justify-center z-10">
@@ -529,7 +1076,7 @@ export default function ReaderPage() {
                     </div>
                   )}
                   
-                  {/* AREA DE LECTURA - Scroll Vertical */}
+                  {/* AREA DE LECTURA - Scroll Vertical *//*}
                   <div 
                     ref={epubViewerRef} 
                     className="w-full h-full overflow-y-auto"
@@ -548,7 +1095,7 @@ export default function ReaderPage() {
             )}
           </div>
 
-          {/* Sidebar */}
+          {/* Sidebar *//*}
           {showSidebar && (
             <div className="w-80 bg-neutral-800 border-l border-neutral-700 overflow-y-auto flex-shrink-0">
               <div className="p-4">
@@ -601,7 +1148,7 @@ export default function ReaderPage() {
           )}
         </div>
 
-        {/* Modal Nota */}
+        {/* Modal Nota *//*}
         {showNoteModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-30 p-4">
             <div className="bg-neutral-800 rounded-lg p-6 max-w-md w-full border border-neutral-700">
@@ -625,7 +1172,7 @@ export default function ReaderPage() {
     </>
   );
 }
-/*// src/app/reader/[id]/page.jsx
+// src/app/reader/[id]/page.jsx
 
 'use client';
 

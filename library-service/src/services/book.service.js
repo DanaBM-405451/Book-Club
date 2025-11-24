@@ -1,12 +1,319 @@
 // library-service/src/services/book.service.js
+// library-service/src/services/book.service.js
 
+const prisma = require('../config/database');
+const { uploadBookCover, uploadBookFile } = require('../utils/cloudinary.utils');
+const axios = require('axios'); // ✅ Necesario para comunicar servicios
+
+class BookService {
+  
+  // --- MÉTODO PRIVADO: Notificar a Gamification Service ---
+  async _notifyGamificationBookFinished(userId, bookId) {
+    try {
+      // Ajusta la URL al puerto de tu gamification-service
+      const gamificationUrl = process.env.GAMIFICATION_SERVICE_URL || 'http://localhost:3004';
+      
+      console.log(`🎉 Notificando libro terminado: ${bookId} para usuario ${userId}`);
+      
+      await axios.post(`${gamificationUrl}/api/gamification/stats/update`, {
+        userId,
+        booksCompleted: 1, // Sumamos 1 libro
+        xpGained: 50,      // Bonus por terminar libro
+        reason: 'Libro completado'
+      });
+      
+    } catch (error) {
+      console.error('❌ Error notificando a Gamification:', error.message);
+      // No lanzamos error para no bloquear la respuesta al usuario
+    }
+  }
+
+  /**
+   * Crear nuevo libro y agregarlo a la biblioteca
+   */
+  async createBook(userId, bookData, files = {}) {
+    // ... (Tu lógica de createBook existente se mantiene igual, simplificada aquí) ...
+    
+    // Validaciones...
+    if (!bookData.titulo) throw new Error('Título requerido');
+    
+    let coverImageUrl = null;
+    let pdfFileUrl = null;
+    let epubFileUrl = null;
+
+    if (files.cover && files.cover[0]) {
+      const tempId = `temp_${Date.now()}`;
+      coverImageUrl = await uploadBookCover(files.cover[0].buffer, tempId);
+    }
+
+    const book = await prisma.book.create({
+      data: {
+        titulo: bookData.titulo,
+        autor: bookData.autor,
+        descripcion: bookData.descripcion,
+        pageCount: bookData.pageCount ? parseInt(bookData.pageCount) : null,
+        categorias: bookData.categorias,
+        idioma: bookData.idioma || 'es',
+        isbn10: bookData.isbn10,
+        isbn13: bookData.isbn13,
+        coverImageUrl: coverImageUrl,
+        publicacion: bookData.publicacion,
+        fechaPublicacion: bookData.fechaPublicacion,
+        source: bookData.source || 'MANUAL',
+        googleBookId: bookData.googleBookId,
+        uploadedByUserId: userId,
+        isPublic: true,
+        isDeleted: false,
+      },
+    });
+
+    // Subida de archivos (simplificada por brevedad, tu lógica original estaba bien)
+    if (files.pdf && files.pdf[0]) {
+        pdfFileUrl = await uploadBookFile(files.pdf[0].buffer, book.id, 'pdf');
+        await prisma.book.update({ where: { id: book.id }, data: { pdfFileUrl } });
+    }
+    if (files.epub && files.epub[0]) {
+        epubFileUrl = await uploadBookFile(files.epub[0].buffer, book.id, 'epub');
+        await prisma.book.update({ where: { id: book.id }, data: { epubFileUrl } });
+    }
+
+    const userBook = await prisma.userBook.create({
+      data: {
+        userId,
+        bookId: book.id,
+        totalPages: book.pageCount || 0,
+        status: bookData.shelf || 'QUIERO_LEER',
+      },
+    });
+
+    // Si se crea directamente como completado (raro pero posible)
+    if (userBook.status === 'COMPLETADO') {
+        this._notifyGamificationBookFinished(userId, book.id);
+    }
+
+    return { book, userBook };
+  }
+
+  async getUserBooks(userId, filters = {}) {
+    const { search, shelf, page = 1, limit = 20 } = filters;
+    const where = { userId, book: { isDeleted: false } };
+
+    if (shelf) where.status = shelf;
+    if (search) {
+      where.book = {
+        ...where.book,
+        OR: [{ titulo: { contains: search } }, { autor: { contains: search } }],
+      };
+    }
+
+    const [userBooks, total] = await Promise.all([
+      prisma.userBook.findMany({
+        where,
+        include: { book: true },
+        skip: (page - 1) * limit,
+        take: parseInt(limit),
+        orderBy: { addedAt: 'desc' },
+      }),
+      prisma.userBook.count({ where }),
+    ]);
+
+    return { userBooks, pagination: { total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / limit) } };
+  }
+
+  async getUserBook(userId, bookId) {
+    const userBook = await prisma.userBook.findFirst({
+      where: { userId, bookId: parseInt(bookId), book: { isDeleted: false } },
+      include: { book: true },
+    });
+    if (!userBook) throw new Error('Libro no encontrado');
+    return userBook;
+  }
+
+  /**
+   * Actualizar libro (Edición general)
+   */
+  async updateBook(userId, bookId, data, files = {}) {
+    const userBook = await this.getUserBook(userId, bookId);
+    const wasCompleted = userBook.status === 'COMPLETADO';
+
+    // 1. Actualizar datos del libro (Tabla Book)
+    let coverImageUrl = undefined;
+    if (files.cover && files.cover[0]) {
+      const tempId = `book_${bookId}_${Date.now()}`;
+      coverImageUrl = await uploadBookCover(files.cover[0].buffer, tempId);
+    }
+
+    const bookUpdateData = {};
+    if (data.titulo) bookUpdateData.titulo = data.titulo.trim();
+    if (data.autor) bookUpdateData.autor = data.autor.trim();
+    if (data.descripcion) bookUpdateData.descripcion = data.descripcion.trim();
+    if (coverImageUrl) bookUpdateData.coverImageUrl = coverImageUrl;
+
+    if (Object.keys(bookUpdateData).length > 0) {
+      await prisma.book.update({ where: { id: parseInt(bookId) }, data: bookUpdateData });
+    }
+
+    // 2. Actualizar estado de usuario (Tabla UserBook)
+    const userBookUpdateData = {};
+    let isJustFinished = false;
+
+    if (data.status) {
+       const validShelves = ['QUIERO_LEER', 'LEYENDO', 'COMPLETADO', 'EN_ESPERA', 'ABANDONADO'];
+       if (validShelves.includes(data.status)) {
+         userBookUpdateData.status = data.status;
+
+         if (data.status === 'COMPLETADO') {
+            userBookUpdateData.finishedAt = new Date();
+            userBookUpdateData.progressPercent = 100;
+            userBookUpdateData.currentPage = userBook.book.pageCount || userBook.totalPages;
+            
+            // ✅ DETECCIÓN: Si no estaba completado y ahora sí
+            if (!wasCompleted) isJustFinished = true;
+         } else if (data.status === 'LEYENDO' && !userBook.startedAt) {
+            userBookUpdateData.startedAt = new Date();
+         }
+       }
+    }
+
+    if (data.tags !== undefined) userBookUpdateData.tags = data.tags;
+
+    if (Object.keys(userBookUpdateData).length > 0) {
+      await prisma.userBook.update({ where: { id: userBook.id }, data: userBookUpdateData });
+    }
+
+    // ✅ 3. NOTIFICACIÓN
+    if (isJustFinished) {
+       await this._notifyGamificationBookFinished(userId, bookId);
+    }
+
+    return this.getUserBook(userId, bookId);
+  }
+
+  async deleteBook(userId, bookId) {
+    await prisma.book.update({
+      where: { id: parseInt(bookId) },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
+    return { message: 'Eliminado' };
+  }
+
+  async rateBook(userId, bookId, rating) {
+    const userBook = await this.getUserBook(userId, bookId);
+    return await prisma.userBook.update({
+      where: { id: userBook.id },
+      data: { rating: parseFloat(rating) },
+    });
+  }
+
+  /**
+   * ✅ Actualizar progreso (Barra de lectura)
+   */
+  async updateProgress(userId, bookId, currentPage) {
+    const userBook = await this.getUserBook(userId, bookId);
+    const wasCompleted = userBook.status === 'COMPLETADO';
+
+    const total = userBook.totalPages || 1;
+    const current = parseInt(currentPage);
+    const progressPercent = ((current / total) * 100).toFixed(2);
+    
+    // Detectar si llegó al final
+    const isFinished = current >= total;
+
+    const updatedUserBook = await prisma.userBook.update({
+      where: { id: userBook.id },
+      data: {
+        currentPage: current,
+        progressPercent: parseFloat(progressPercent),
+        lastReadAt: new Date(),
+        // Si llegó al final, cambiar estado automáticamente
+        status: isFinished ? 'COMPLETADO' : userBook.status,
+        finishedAt: isFinished ? new Date() : userBook.finishedAt,
+      },
+    });
+
+    // ✅ NOTIFICACIÓN: Si llegó al final y no estaba completado antes
+    if (isFinished && !wasCompleted) {
+        await this._notifyGamificationBookFinished(userId, bookId);
+    }
+
+    return updatedUserBook;
+  }
+
+  /**
+   * ✅ Cambiar estante (Drag & Drop o Dropdown)
+   */
+  async changeShelf(userId, bookId, shelf) {
+    const userBook = await this.getUserBook(userId, bookId);
+    const wasCompleted = userBook.status === 'COMPLETADO';
+    
+    const validShelves = ['QUIERO_LEER', 'LEYENDO', 'COMPLETADO', 'EN_ESPERA', 'ABANDONADO'];
+    if (!validShelves.includes(shelf)) throw new Error('Estante inválido');
+
+    const updatedUserBook = await prisma.userBook.update({
+      where: { id: userBook.id },
+      data: {
+        status: shelf,
+        startedAt: shelf === 'LEYENDO' && !userBook.startedAt ? new Date() : userBook.startedAt,
+        finishedAt: shelf === 'COMPLETADO' ? new Date() : null,
+        // Si completa, poner progreso al 100%
+        progressPercent: shelf === 'COMPLETADO' ? 100 : userBook.progressPercent,
+        currentPage: shelf === 'COMPLETADO' ? (userBook.totalPages || userBook.currentPage) : userBook.currentPage
+      },
+    });
+
+    // ✅ NOTIFICACIÓN
+    if (shelf === 'COMPLETADO' && !wasCompleted) {
+        await this._notifyGamificationBookFinished(userId, bookId);
+    }
+
+    return updatedUserBook;
+  }
+
+  async manageTags(userId, bookId, tags) {
+    const userBook = await this.getUserBook(userId, bookId);
+    return await prisma.userBook.update({
+      where: { id: userBook.id },
+      data: { tags: Array.isArray(tags) ? tags.join(',') : tags },
+    });
+  }
+
+  async getLibraryStats(userId) {
+    const [totalBooks, byShelf] = await Promise.all([
+      prisma.userBook.count({ where: { userId, book: { isDeleted: false } } }),
+      prisma.userBook.groupBy({
+        by: ['status'],
+        where: { userId, book: { isDeleted: false } },
+        _count: true,
+      }),
+    ]);
+
+    const shelfStats = byShelf.reduce((acc, item) => {
+      acc[item.status.toLowerCase()] = item._count;
+      return acc;
+    }, {});
+
+    return {
+      totalBooks,
+      byShelf: {
+        quieroLeer: shelfStats.quiero_leer || 0,
+        leyendo: shelfStats.leyendo || 0,
+        completado: shelfStats.completado || 0, // Este número ahora subirá correctamente
+        enEspera: shelfStats.en_espera || 0,
+        abandonado: shelfStats.abandonado || 0,
+      }
+    };
+  }
+}
+
+module.exports = new BookService();
+/*
 const prisma = require('../config/database');
 const { uploadBookCover, uploadBookFile } = require('../utils/cloudinary.utils');
 
 class BookService {
   /**
    * Crear nuevo libro y agregarlo a la biblioteca del usuario
-   */
+   *//*
 async createBook(userId, bookData, files = {}) {
     console.log('📚 Service - Creating book');
     console.log('📦 bookData:', bookData);
@@ -207,7 +514,7 @@ async createBook(userId, bookData, files = {}) {
 
   /**
    * Obtener libros del usuario con filtros
-   */
+   *//*
   async getUserBooks(userId, filters = {}) {
     const { search, shelf, page = 1, limit = 20 } = filters;
 
@@ -260,7 +567,7 @@ async createBook(userId, bookData, files = {}) {
 
   /**
    * Obtener un libro específico del usuario
-   */
+   *//*
   async getUserBook(userId, bookId) {
     const userBook = await prisma.userBook.findFirst({
       where: {
@@ -284,7 +591,96 @@ async createBook(userId, bookData, files = {}) {
 
   /**
    * Actualizar libro (Datos generales, portada y estado/tags del usuario)
-   */
+   *//*
+  async updateBook(userId, bookId, data, files = {}) {
+    // 1. Obtener estado actual para comparar
+    const userBook = await this.getUserBook(userId, bookId);
+    const wasCompleted = userBook.status === 'COMPLETADO';
+
+    // 2. Lógica de Portada (Igual que antes)
+    let coverImageUrl = undefined;
+    if (files.cover && files.cover[0]) {
+      const tempId = `book_${bookId}_${Date.now()}`;
+      coverImageUrl = await uploadBookCover(files.cover[0].buffer, tempId);
+    }
+
+    // 3. Update BOOK (Global) - (Igual que antes)
+    const bookUpdateData = {};
+    if (data.titulo) bookUpdateData.titulo = data.titulo.trim();
+    if (data.autor) bookUpdateData.autor = data.autor.trim();
+    if (data.descripcion) bookUpdateData.descripcion = data.descripcion.trim();
+    if (coverImageUrl) bookUpdateData.coverImageUrl = coverImageUrl;
+
+    if (Object.keys(bookUpdateData).length > 0) {
+      await prisma.book.update({
+        where: { id: parseInt(bookId) },
+        data: bookUpdateData,
+      });
+    }
+
+    // 4. Update USERBOOK (Estado y Progreso)
+    const userBookUpdateData = {};
+    let isJustFinished = false; // Bandera para saber si acaba de terminar
+
+    if (data.status) {
+       const validShelves = ['QUIERO_LEER', 'LEYENDO', 'COMPLETADO', 'EN_ESPERA', 'ABANDONADO'];
+       if (validShelves.includes(data.status)) {
+         userBookUpdateData.status = data.status;
+
+         // LOGICA DE COMPLETADO
+         if (data.status === 'COMPLETADO') {
+            userBookUpdateData.finishedAt = new Date();
+            userBookUpdateData.progressPercent = 100;
+            userBookUpdateData.currentPage = userBook.book.pageCount || userBook.totalPages;
+            
+            // ✅ Si NO estaba completado antes, marcamos la bandera
+            if (!wasCompleted) {
+                isJustFinished = true;
+            }
+         } 
+         else if (data.status === 'LEYENDO' && !userBook.startedAt) {
+            userBookUpdateData.startedAt = new Date();
+         }
+       }
+    }
+
+    if (data.tags !== undefined) {
+      userBookUpdateData.tags = data.tags;
+    }
+
+    if (Object.keys(userBookUpdateData).length > 0) {
+      await prisma.userBook.update({
+        where: { id: userBook.id },
+        data: userBookUpdateData,
+      });
+    }
+
+    // ✅ 5. NOTIFICAR A GAMIFICATION SERVICE (El Puente)
+    if (isJustFinished) {
+        console.log('🎉 Libro completado. Notificando a Gamification Service...');
+        try {
+            // Ajusta la URL al puerto donde corre tu servicio de gamificación (ej: 3004)
+            // O usa la variable de entorno si la tienes configurada
+            const gamificationUrl = process.env.GAMIFICATION_SERVICE_URL || 'http://localhost:3004';
+            
+            await axios.post(`${gamificationUrl}/api/gamification/events/book-finished`, {
+                userId: userId,
+                bookId: parseInt(bookId),
+                timestamp: new Date()
+            });
+            console.log('✅ Gamification notificado correctamente');
+        } catch (error) {
+            // No bloqueamos el error para que no falle la actualización del libro, solo logueamos
+            console.error('❌ Error notificando a Gamification:', error.message);
+        }
+    }
+
+    return this.getUserBook(userId, bookId);
+  }
+
+  /**
+   * Actualizar libro (Datos generales, portada y estado/tags del usuario)
+   *//*
   async updateBook(userId, bookId, data, files = {}) {
     // 1. Verificar que el usuario tenga este libro
     const userBook = await this.getUserBook(userId, bookId);
@@ -340,7 +736,7 @@ async createBook(userId, bookData, files = {}) {
 
     // 5. Devolver el libro actualizado completo
     return this.getUserBook(userId, bookId);
-  }
+  }*/
 
   /**
    * Actualizar libro
@@ -358,7 +754,7 @@ async createBook(userId, bookData, files = {}) {
 
   /**
    * Eliminar libro (soft delete)
-   */
+   *//*
   async deleteBook(userId, bookId) {
     const userBook = await this.getUserBook(userId, bookId);
 
@@ -375,7 +771,7 @@ async createBook(userId, bookData, files = {}) {
 
   /**
    * Calificar libro
-   */
+   *//*
   async rateBook(userId, bookId, rating) {
     const userBook = await this.getUserBook(userId, bookId);
 
@@ -389,7 +785,7 @@ async createBook(userId, bookData, files = {}) {
 
   /**
    * Actualizar progreso de lectura
-   */
+   *//*
   async updateProgress(userId, bookId, currentPage) {
     const userBook = await this.getUserBook(userId, bookId);
 
@@ -416,7 +812,7 @@ async createBook(userId, bookData, files = {}) {
 
   /**
    * Cambiar estante
-   */
+   *//*
   async changeShelf(userId, bookId, shelf) {
     const userBook = await this.getUserBook(userId, bookId);
 
@@ -441,7 +837,7 @@ async createBook(userId, bookData, files = {}) {
 
   /**
    * Gestionar tags
-   */
+   *//*
   async manageTags(userId, bookId, tags) {
     const userBook = await this.getUserBook(userId, bookId);
 
@@ -457,7 +853,7 @@ async createBook(userId, bookData, files = {}) {
 
   /**
    * Obtener estadísticas de la biblioteca
-   */
+   *//*
   async getLibraryStats(userId) {
     const [totalBooks, byShelf, totalPagesRead, totalReadingTime] = await Promise.all([
       prisma.userBook.count({

@@ -1,407 +1,283 @@
-// social-service/src/services/goals.service.js
+// src/services/goals.service.js
 
 const { prisma } = require('../config/database');
 const externalService = require('./external.service');
-const { getDateRangeForFrequency, createNotificationMetadata } = require('../utils/helpers');
 
 class GoalsService {
   /**
-   * Crear meta de lectura (solo admin)
-   * Historia 5.5: Metas de lectura grupales
+   * Obtener metas del grupo
+   */
+  async getGoals(groupId, includeInactive = false) {
+    try {
+      const where = { groupId };
+      
+      if (!includeInactive) {
+        where.status = 'ACTIVE';
+      }
+
+      const goals = await prisma.readingGoal.findMany({
+        where,
+        orderBy: { createdAt: 'desc' }
+      });
+
+      return goals.map(goal => {
+        const now = new Date();
+        const startDate = new Date(goal.startDate);
+        const endDate = new Date(goal.endDate);
+        const daysRemaining = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+        
+        return {
+          ...goal,
+          daysRemaining: daysRemaining > 0 ? daysRemaining : 0,
+          isExpired: endDate < now && goal.status === 'ACTIVE'
+        };
+      });
+
+    } catch (error) {
+      console.error('Error obteniendo metas:', error);
+      throw new Error('No se pudieron obtener las metas');
+    }
+  }
+
+  /**
+   * Crear una meta de lectura
+   */
+  /**
+   * Crear una meta de lectura
    */
   async createGoal(groupId, userId, data, token) {
     try {
-      const { bookId, bookTitle, startDate, endDate, targetPages, frequency = 'WEEKLY' } = data;
+      const {
+        bookId,
+        bookTitle,
+        startDate,
+        endDate,
+        targetPages,
+        frequency = 'WEEKLY',
+        description
+      } = data;
 
-      // Verificar que el usuario es admin del grupo
+      // Verificar que el usuario es admin
       const membership = await prisma.groupMember.findUnique({
         where: {
-          groupId_userId: {
-            groupId,
-            userId,
-          },
-        },
+          groupId_userId: { groupId, userId }
+        }
       });
 
       if (!membership || membership.role !== 'ADMIN') {
-        throw new Error('Solo el administrador puede crear metas de lectura');
+        throw new Error('Solo el administrador puede crear metas');
       }
 
-      // Verificar que el libro existe
-      try {
-        await externalService.getBookById(bookId, token);
-      } catch (error) {
-        console.warn('No se pudo validar el libro:', error.message);
+      // Verificar que no haya otra meta activa
+      const activeGoal = await prisma.readingGoal.findFirst({
+        where: {
+          groupId,
+          status: 'ACTIVE'
+        }
+      });
+
+      if (activeGoal) {
+        throw new Error('Ya existe una meta activa. Complétala o cancélala antes de crear una nueva.');
       }
-
-      // Validar fechas
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-
-      if (start >= end) {
-        throw new Error('La fecha de inicio debe ser anterior a la fecha de fin');
-      }
-
-      if (start < new Date()) {
-        throw new Error('La fecha de inicio no puede ser en el pasado');
-      }
-
-      // metas activas ?
-      await prisma.readingGoal.updateMany({
-  where: {
-    groupId,
-    status: 'ACTIVE',
-  },
-  data: {
-    status: 'CANCELLED',
-  },
-});
 
       // Crear la meta
       const goal = await prisma.readingGoal.create({
         data: {
           groupId,
-          bookId,
+          bookId: parseInt(bookId),
           bookTitle,
-          startDate: start,
-          endDate: end,
-          targetPages,
+          startDate: new Date(startDate),
+          endDate: new Date(endDate),
+          targetPages: parseInt(targetPages),
           frequency,
-          createdBy: userId,
+          description,
           status: 'ACTIVE',
-        },
+          createdBy: userId // ✅ ESTA ES LA LÍNEA QUE FALTABA
+        }
       });
 
-      // Notificar a todos los miembros del grupo
-      await this.notifyGroupMembers(
-        groupId,
-        userId,
-        'GOAL_CREATED',
-        'Nueva meta de lectura',
-        `Se ha creado una nueva meta de lectura: ${bookTitle}`,
-        { goalId: goal.id, groupId }
-      );
+      // Otorgar XP al admin
+      try {
+        await externalService.awardXP(
+          userId,
+          15,
+          'Crear meta de lectura en grupo',
+          token
+        );
+      } catch (error) {
+        console.log('Error otorgando XP:', error.message);
+      }
 
       return goal;
+
     } catch (error) {
-      console.error('Error creando meta de lectura:', error);
+      console.error('Error creando meta:', error);
       throw error;
     }
   }
 
   /**
-   * Obtener metas de un grupo
-   * Historia 5.5: Metas de lectura grupales
+   * Obtener meta activa
    */
-  async getGroupGoals(groupId, userId, includeInactive = false, token) {
+  async getActiveGoal(groupId) {
     try {
-      // Verificar que el usuario es miembro del grupo
-      const membership = await prisma.groupMember.findUnique({
-        where: {
-          groupId_userId: {
-            groupId,
-            userId,
-          },
-        },
-      });
-
-      if (!membership) {
-        throw new Error('Solo los miembros pueden ver las metas del grupo');
-      }
-
-      const where = {
-        groupId,
-        ...(includeInactive ? {} : { status: 'ACTIVE' }),
-      };
-
-      const goals = await prisma.readingGoal.findMany({
-        where,
-        orderBy: {
-          createdAt: 'desc',
-        },
-      });
-
-      // Obtener información de los libros
-      const goalsWithBooks = [];
-
-      for (const goal of goals) {
-        let book = null;
-        try {
-          book = await externalService.getBookById(goal.bookId, token);
-        } catch (error) {
-          console.error(`Error obteniendo libro ${goal.bookId}:`, error);
-        }
-
-        goalsWithBooks.push({
-          ...goal,
-          book,
-          daysRemaining: this.calculateDaysRemaining(goal.endDate),
-          isExpired: new Date(goal.endDate) < new Date(),
-        });
-      }
-
-      return goalsWithBooks;
-    } catch (error) {
-      console.error('Error obteniendo metas del grupo:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Obtener meta activa del grupo
-   */
-  async getActiveGoal(groupId, userId, token) {
-    try {
-      // Verificar que el usuario es miembro del grupo
-      const membership = await prisma.groupMember.findUnique({
-        where: {
-          groupId_userId: {
-            groupId,
-            userId,
-          },
-        },
-      });
-
-      if (!membership) {
-        throw new Error('Solo los miembros pueden ver las metas del grupo');
-      }
-
       const goal = await prisma.readingGoal.findFirst({
         where: {
           groupId,
-          status: 'ACTIVE',
+          status: 'ACTIVE'
         },
+        orderBy: {
+          createdAt: 'desc'
+        }
       });
 
       if (!goal) {
         return null;
       }
 
-      // Obtener información del libro
+      const now = new Date();
+      const endDate = new Date(goal.endDate);
+      const daysRemaining = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+
+      // Obtener información del libro si existe
       let book = null;
-      try {
-        book = await externalService.getBookById(goal.bookId, token);
-      } catch (error) {
-        console.error(`Error obteniendo libro ${goal.bookId}:`, error);
+      if (goal.bookId) {
+        try {
+          const books = await externalService.getBooksByIds([goal.bookId], null);
+          book = books[0] || null;
+        } catch (error) {
+          console.log('Error obteniendo libro:', error.message);
+        }
       }
 
       return {
         ...goal,
         book,
-        daysRemaining: this.calculateDaysRemaining(goal.endDate),
-        isExpired: new Date(goal.endDate) < new Date(),
+        daysRemaining: daysRemaining > 0 ? daysRemaining : 0,
+        isExpired: endDate < now
       };
+
     } catch (error) {
       console.error('Error obteniendo meta activa:', error);
-      throw error;
+      throw new Error('No se pudo obtener la meta activa');
     }
   }
 
   /**
-   * Actualizar meta de lectura (solo admin)
-   * Historia 5.5: Metas de lectura grupales
+   * Actualizar una meta
    */
-  async updateGoal(groupId, goalId, userId, data, token) {
+  async updateGoal(groupId, goalId, userId, data) {
     try {
-      // Verificar que el usuario es admin del grupo
+      // Verificar que el usuario es admin
       const membership = await prisma.groupMember.findUnique({
         where: {
-          groupId_userId: {
-            groupId,
-            userId,
-          },
-        },
+          groupId_userId: { groupId, userId }
+        }
       });
 
       if (!membership || membership.role !== 'ADMIN') {
-        throw new Error('Solo el administrador puede editar metas de lectura');
+        throw new Error('Solo el administrador puede actualizar metas');
       }
-
-      // Verificar que la meta pertenece al grupo
-      const goal = await prisma.readingGoal.findUnique({
-        where: { id: goalId },
-      });
-
-      if (!goal || goal.groupId !== groupId) {
-        throw new Error('Meta de lectura no encontrada');
-      }
-
-      // Validar fechas si se actualizan
-      if (data.startDate || data.endDate) {
-  const start = new Date(data.startDate || goal.startDate);
-  const end = new Date(data.endDate || goal.endDate);
-
-  if (start >= end) {
-    throw new Error('La fecha de inicio debe ser anterior a la fecha de fin');
-  }
-}
-const updateData = { ...data };
-if (updateData.startDate) {
-  updateData.startDate = new Date(updateData.startDate);
-}
-if (updateData.endDate) {
-  updateData.endDate = new Date(updateData.endDate);
-}
 
       // Actualizar la meta
-      return await prisma.readingGoal.update({
-  where: { id: goalId },
-  data: updateData,
-});
-    } catch (error) {
-      console.error('Error actualizando meta de lectura:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Marcar meta como completada (automático o manual por admin)
-   */
-  async completeGoal(groupId, goalId, userId) {
-    try {
-      // Verificar que el usuario es admin del grupo
-      const membership = await prisma.groupMember.findUnique({
-        where: {
-          groupId_userId: {
-            groupId,
-            userId,
-          },
-        },
-      });
-
-      if (!membership || membership.role !== 'ADMIN') {
-        throw new Error('Solo el administrador puede completar metas de lectura');
-      }
-
-      // Verificar que la meta pertenece al grupo
-      const goal = await prisma.readingGoal.findUnique({
-        where: { id: goalId },
-      });
-
-      if (!goal || goal.groupId !== groupId) {
-        throw new Error('Meta de lectura no encontrada');
-      }
-
-      // Marcar como completada
-      const completed = await prisma.readingGoal.update({
+      const goal = await prisma.readingGoal.update({
         where: { id: goalId },
         data: {
-          status: 'COMPLETED',
-        },
+          targetPages: data.targetPages ? parseInt(data.targetPages) : undefined,
+          frequency: data.frequency,
+          description: data.description,
+          endDate: data.endDate ? new Date(data.endDate) : undefined,
+          updatedAt: new Date()
+        }
       });
 
-      // Notificar a todos los miembros
-      await this.notifyGroupMembers(
-        groupId,
-        userId,
-        'GOAL_COMPLETED',
-        'Meta de lectura completada',
-        `El grupo ha completado la meta de lectura: ${goal.bookTitle}`,
-        { goalId, groupId }
-      );
+      return goal;
 
-      return completed;
     } catch (error) {
-      console.error('Error completando meta de lectura:', error);
+      console.error('Error actualizando meta:', error);
       throw error;
     }
   }
 
   /**
-   * Eliminar meta (solo admin)
+   * Eliminar una meta
    */
   async deleteGoal(groupId, goalId, userId) {
     try {
-      // Verificar que el usuario es admin del grupo
+      // Verificar que el usuario es admin
       const membership = await prisma.groupMember.findUnique({
         where: {
-          groupId_userId: {
-            groupId,
-            userId,
-          },
-        },
+          groupId_userId: { groupId, userId }
+        }
       });
 
       if (!membership || membership.role !== 'ADMIN') {
-        throw new Error('Solo el administrador puede eliminar metas de lectura');
-      }
-
-      // Verificar que la meta pertenece al grupo
-      const goal = await prisma.readingGoal.findUnique({
-        where: { id: goalId },
-      });
-
-      if (!goal || goal.groupId !== groupId) {
-        throw new Error('Meta de lectura no encontrada');
+        throw new Error('Solo el administrador puede eliminar metas');
       }
 
       // Eliminar la meta
       await prisma.readingGoal.delete({
-        where: { id: goalId },
+        where: { id: goalId }
       });
 
-      return { message: 'Meta de lectura eliminada exitosamente' };
+      return { message: 'Meta eliminada correctamente' };
+
     } catch (error) {
-      console.error('Error eliminando meta de lectura:', error);
+      console.error('Error eliminando meta:', error);
       throw error;
     }
   }
 
   /**
-   * Calcular días restantes para una fecha
+   * Completar una meta
    */
-  calculateDaysRemaining(endDate) {
-    const now = new Date();
-    const end = new Date(endDate);
-    const diffTime = end - now;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays > 0 ? diffDays : 0;
-  }
-
-  /**
-   * Notificar a todos los miembros del grupo
-   */
-  async notifyGroupMembers(groupId, excludeUserId, type, title, message, metadata = {}) {
+  async completeGoal(groupId, goalId, userId, token) {
     try {
-      const members = await prisma.groupMember.findMany({
+      // Verificar que el usuario es admin
+      const membership = await prisma.groupMember.findUnique({
         where: {
-          groupId,
-          userId: { not: excludeUserId },
-        },
-        select: {
-          userId: true,
-        },
+          groupId_userId: { groupId, userId }
+        }
       });
 
-      const notifications = members.map(member =>
-        this.createNotification(member.userId, type, title, message, metadata)
-      );
+      if (!membership || membership.role !== 'ADMIN') {
+        throw new Error('Solo el administrador puede completar metas');
+      }
 
-      await Promise.all(notifications);
-    } catch (error) {
-      console.error('Error notificando a miembros del grupo:', error);
-    }
-  }
-
-  /**
-   * Crear notificación
-   */
-  async createNotification(userId, type, title, message, metadata = {}) {
-    try {
-      return await prisma.notification.create({
+      // Marcar como completada
+      const goal = await prisma.groupGoal.update({
+        where: { id: goalId },
         data: {
-          userId,
-          type,
-          title,
-          message,
-          metadata: createNotificationMetadata(type, metadata),
-        },
+          status: 'COMPLETED',
+          updatedAt: new Date()
+        }
       });
+
+      // Otorgar XP a todos los miembros del grupo
+      try {
+        const members = await prisma.groupMember.findMany({
+          where: { groupId }
+        });
+
+        for (const member of members) {
+          await externalService.awardXP(
+            member.userId,
+            30,
+            'Completar meta de grupo',
+            token
+          );
+        }
+      } catch (error) {
+        console.log('Error otorgando XP:', error.message);
+      }
+
+      return goal;
+
     } catch (error) {
-      console.error('Error creando notificación:', error);
-      return null;
+      console.error('Error completando meta:', error);
+      throw error;
     }
   }
 }
 
-module.exports = new GoalsService();
+module.exports = new GoalsService(); 

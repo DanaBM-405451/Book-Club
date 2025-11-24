@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Upload, Loader2 } from 'lucide-react';
+import { X, Upload, Loader2, Globe, Lock } from 'lucide-react';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 
@@ -13,7 +13,7 @@ export default function CreateGroupModal({ isOpen, onClose, onGroupCreated }) {
     description: '',
     isPrivate: false,
     maxMembers: '',
-    cover: null,
+    cover: null, // Por ahora no se enviará al backend
   });
 
   const handleSubmit = async (e) => {
@@ -27,21 +27,19 @@ export default function CreateGroupModal({ isOpen, onClose, onGroupCreated }) {
     try {
       setLoading(true);
 
-      const data = new FormData();
-      data.append('name', formData.name.trim());
-      if (formData.description) data.append('description', formData.description.trim());
-      data.append('isPrivate', formData.isPrivate);
-      if (formData.maxMembers) data.append('maxMembers', formData.maxMembers);
-      if (formData.cover) data.append('cover', formData.cover);
+      // ✅ CAMBIO: Enviamos JSON en lugar de FormData
+      // Como el backend de grupos aún no soporta imágenes en la BD, enviamos solo texto.
+      const payload = {
+        name: formData.name.trim(),
+        description: formData.description?.trim() || '',
+        isPublic: !formData.isPrivate, // Convertimos isPrivate a isPublic
+        maxMembers: formData.maxMembers ? parseInt(formData.maxMembers) : 5
+      };
 
-      await api.post('/api/social/groups', data, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      await api.post('/api/social/groups', payload);
 
       toast.success('¡Grupo creado exitosamente!');
-      onGroupCreated?.();
+      if(onGroupCreated) onGroupCreated();
       onClose();
       
       // Reset form
@@ -73,22 +71,22 @@ export default function CreateGroupModal({ isOpen, onClose, onGroupCreated }) {
       {/* Modal */}
       <div className="flex min-h-full items-center justify-center p-4">
         <div
-          className="relative bg-white rounded-lg shadow-book max-w-lg w-full"
+          className="relative bg-white rounded-xl shadow-2xl max-w-lg w-full transform transition-all"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-neutral-200">
-            <h3 className="text-2xl font-heading">Crear Grupo de Lectura</h3>
+          <div className="flex items-center justify-between p-6 border-b border-neutral-100">
+            <h3 className="text-2xl font-heading text-neutral-800">Crear Grupo</h3>
             <button
               onClick={onClose}
-              className="text-neutral-400 hover:text-neutral-600 transition-colors"
+              className="text-neutral-400 hover:text-neutral-600 transition-colors p-1 rounded-full hover:bg-neutral-100"
             >
               <X className="w-6 h-6" />
             </button>
           </div>
 
           {/* Content */}
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <form onSubmit={handleSubmit} className="p-6 space-y-5">
             {/* Nombre */}
             <div>
               <label className="label-field">Nombre del grupo *</label>
@@ -97,7 +95,7 @@ export default function CreateGroupModal({ isOpen, onClose, onGroupCreated }) {
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className="input-field"
-                placeholder="Club de Ciencia Ficción"
+                placeholder="Ej: Club de Fantasía Épica"
                 required
               />
             </div>
@@ -108,96 +106,78 @@ export default function CreateGroupModal({ isOpen, onClose, onGroupCreated }) {
               <textarea
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="input-field"
-                rows={4}
+                className="input-field min-h-[100px] resize-none"
                 placeholder="Describe de qué trata tu grupo de lectura..."
               />
             </div>
 
             {/* Máximo de miembros */}
             <div>
-              <label className="label-field">Máximo de miembros (opcional)</label>
+              <label className="label-field">Máximo de miembros</label>
               <input
                 type="number"
                 value={formData.maxMembers}
                 onChange={(e) => setFormData({ ...formData, maxMembers: e.target.value })}
                 className="input-field"
-                placeholder="20"
+                placeholder="Por defecto: 5"
                 min="2"
+                max="50"
               />
             </div>
 
-            {/* Privacidad */}
-            <div className="flex items-center justify-between p-4 bg-neutral-50 rounded-lg">
-              <div>
-                <p className="font-ui font-medium text-neutral-900">Grupo privado</p>
-                <p className="text-sm text-neutral-600">
-                  Los miembros deben solicitar unirse
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setFormData({ ...formData, isPrivate: !formData.isPrivate })}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  formData.isPrivate ? 'bg-primary-500' : 'bg-neutral-300'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    formData.isPrivate ? 'translate-x-6' : 'translate-x-1'
+            {/* Privacidad (Selector Visual) */}
+            <div>
+              <label className="label-field mb-3 block">Privacidad</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, isPrivate: false })}
+                  className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
+                    !formData.isPrivate 
+                      ? 'border-primary-500 bg-primary-50 text-primary-700' 
+                      : 'border-neutral-200 hover:border-neutral-300 text-neutral-600'
                   }`}
-                />
-              </button>
+                >
+                  <Globe className={`w-6 h-6 mb-2 ${!formData.isPrivate ? 'text-primary-500' : 'text-neutral-400'}`} />
+                  <span className="font-bold text-sm">Público</span>
+                  <span className="text-xs opacity-75">Cualquiera puede unirse</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, isPrivate: true })}
+                  className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
+                    formData.isPrivate 
+                      ? 'border-primary-500 bg-primary-50 text-primary-700' 
+                      : 'border-neutral-200 hover:border-neutral-300 text-neutral-600'
+                  }`}
+                >
+                  <Lock className={`w-6 h-6 mb-2 ${formData.isPrivate ? 'text-primary-500' : 'text-neutral-400'}`} />
+                  <span className="font-bold text-sm">Privado</span>
+                  <span className="text-xs opacity-75">Solo invitación</span>
+                </button>
+              </div>
             </div>
 
-            {/* Portada */}
-            <div>
-              <label className="label-field">Portada del grupo (opcional)</label>
-              <div className="border-2 border-dashed border-neutral-300 rounded-lg p-6 text-center hover:border-primary-400 transition-colors">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      if (file.size > 5 * 1024 * 1024) {
-                        toast.error('La imagen no debe superar los 5MB');
-                        return;
-                      }
-                      setFormData({ ...formData, cover: file });
-                    }
-                  }}
-                  className="hidden"
-                  id="group-cover"
-                />
-                <label htmlFor="group-cover" className="cursor-pointer flex flex-col items-center gap-2">
-                  <Upload className="w-12 h-12 text-neutral-400" />
-                  {formData.cover ? (
-                    <p className="text-sm text-green-600 font-ui">✓ {formData.cover.name}</p>
-                  ) : (
-                    <>
-                      <p className="text-sm text-neutral-600 font-ui">Haz clic para subir una imagen</p>
-                      <p className="text-xs text-neutral-500">PNG, JPG (máx. 5MB)</p>
-                    </>
-                  )}
-                </label>
-              </div>
+            {/* Mensaje sobre portada (Opcional, para futura implementación) */}
+            <div className="p-3 bg-neutral-50 rounded-lg text-xs text-neutral-500 border border-neutral-100">
+               ℹ️ La opción de subir imagen de portada estará disponible próximamente.
             </div>
 
             {/* Actions */}
-            <div className="flex gap-3 justify-end pt-4">
+            <div className="flex gap-3 pt-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="btn-outline"
+                className="btn-outline flex-1"
                 disabled={loading}
               >
                 Cancelar
               </button>
-              <button type="submit" className="btn-primary" disabled={loading}>
+              <button type="submit" className="btn-primary flex-1" disabled={loading}>
                 {loading ? (
                   <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <Loader2 className="w-5 h-5 animate-spin mr-2" />
                     Creando...
                   </>
                 ) : (

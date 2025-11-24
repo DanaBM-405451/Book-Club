@@ -3,13 +3,16 @@
 const usersService = require('../services/users.service');
 
 /**
- * Buscar usuarios por username
+ * Buscar usuarios por username (con estado de amistad)
  * GET /users/search?q=username&page=1&limit=20
  */
 const searchUsers = async (req, res) => {
   try {
     const { q } = req.query;
+    // ✅ 1. Extraer el ID del usuario logueado
+    const userId = req.user.id; 
     const token = req.headers.authorization;
+    
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
 
@@ -20,7 +23,8 @@ const searchUsers = async (req, res) => {
       });
     }
 
-    const result = await usersService.searchUsers(q, page, limit, token);
+    // ✅ 2. Pasamos userId como primer argumento
+    const result = await usersService.searchUsers(userId, q, page, limit, token);
 
     return res.status(200).json({
       success: true,
@@ -37,7 +41,6 @@ const searchUsers = async (req, res) => {
     });
   }
 };
-
 /**
  * Obtener perfil público de un usuario
  * GET /users/:userId

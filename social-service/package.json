@@ -11,11 +11,15 @@
     "prisma:studio": "prisma studio",
     "prisma:push": "prisma db push"
   },
-  "keywords": ["social", "microservice", "book-club"],
+  "keywords": [
+    "social",
+    "microservice",
+    "book-club"
+  ],
   "author": "Dana",
   "license": "MIT",
   "dependencies": {
-    "@prisma/client": "^5.22.0",
+    "@prisma/client": "5.22.0",
     "axios": "^1.7.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -27,6 +31,6 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.0",
-    "prisma": "^5.22.0"
+    "prisma": "5.22.0"
   }
 }

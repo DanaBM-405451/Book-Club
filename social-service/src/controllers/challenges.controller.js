@@ -1,11 +1,40 @@
-// src/controllers/challenge.controller.js
 // src/controllers/challenges.controller.js
+
 const challengesService = require('../services/challenges.service');
 
 /**
- * Crear reto de lectura
+ * Obtener retos del grupo
+ * GET /groups/:groupId/challenges?includeArchived=false
+ */
+const getChallenges = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const includeArchived = req.query.includeArchived === 'true';
+
+    const challenges = await challengesService.getChallenges(
+      parseInt(groupId),
+      includeArchived
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: challenges,
+      message: 'Retos obtenidos correctamente'
+    });
+
+  } catch (error) {
+    console.error('Error obteniendo retos:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Crear un reto de lectura
  * POST /groups/:groupId/challenges
- * Body: { bookId, bookTitle?, bookAuthor?, bookCoverUrl?, totalPages?, startDate, endDate, description?, fromProposalId? }
+ * Body: { bookId, bookTitle, bookAuthor?, totalPages, startDate, endDate, description? }
  */
 const createChallenge = async (req, res) => {
   try {
@@ -13,26 +42,29 @@ const createChallenge = async (req, res) => {
     const userId = req.user.id;
     const token = req.headers.authorization;
 
-    if (!req.body.bookId || !req.body.startDate || !req.body.endDate) {
+    if (!req.body.bookTitle || !req.body.totalPages || !req.body.startDate || !req.body.endDate) {
       return res.status(400).json({
         success: false,
-        message: 'Se requieren: bookId, startDate, endDate'
+        message: 'Faltan campos requeridos'
       });
     }
 
-    const challenge = await challengesService.createChallenge(parseInt(groupId), userId, req.body, token);
+    const challenge = await challengesService.createChallenge(
+      parseInt(groupId),
+      userId,
+      req.body,
+      token
+    );
 
     return res.status(201).json({
       success: true,
       data: challenge,
-      message: 'Reto de lectura creado correctamente'
+      message: 'Reto creado exitosamente'
     });
 
   } catch (error) {
     console.error('Error creando reto:', error);
-    const statusCode = error.message.includes('miembro') ? 403 : 
-                       error.message.includes('no existe') ? 404 : 400;
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -40,107 +72,35 @@ const createChallenge = async (req, res) => {
 };
 
 /**
- * Listar retos del grupo
- * GET /groups/:groupId/challenges?page=1&limit=20&includeArchived=false
- */
-const getGroupChallenges = async (req, res) => {
-  try {
-    const { groupId } = req.params;
-    const userId = req.user.id;
-    const token = req.headers.authorization;
-    const includeArchived = req.query.includeArchived === 'true';
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-
-    const result = await challengesService.getGroupChallenges(
-      parseInt(groupId), 
-      userId, 
-      includeArchived, 
-      page, 
-      limit, 
-      token
-    );
-
-    return res.status(200).json({
-      success: true,
-      data: result.data,
-      pagination: result.pagination,
-      message: 'Retos obtenidos correctamente'
-    });
-
-  } catch (error) {
-    console.error('Error obteniendo retos:', error);
-    const statusCode = error.message.includes('miembros') ? 403 : 500;
-    return res.status(statusCode).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/**
- * Obtener reto activo del grupo
+ * Obtener reto activo
  * GET /groups/:groupId/challenges/active
  */
 const getActiveChallenge = async (req, res) => {
   try {
     const { groupId } = req.params;
     const userId = req.user.id;
-    const token = req.headers.authorization;
 
-    const challenge = await challengesService.getActiveChallenge(parseInt(groupId), userId, token);
+    const challenge = await challengesService.getActiveChallenge(
+      parseInt(groupId),
+      userId
+    );
 
     if (!challenge) {
       return res.status(404).json({
         success: false,
-        message: 'No hay ningún reto activo en este grupo'
+        message: 'No hay reto activo'
       });
     }
 
     return res.status(200).json({
       success: true,
       data: challenge,
-      message: 'Reto activo obtenido correctamente'
+      message: 'Reto activo obtenido'
     });
 
   } catch (error) {
     console.error('Error obteniendo reto activo:', error);
-    const statusCode = error.message.includes('miembros') ? 403 : 500;
-    return res.status(statusCode).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/**
- * Obtener detalle de un reto
- * GET /groups/:groupId/challenges/:challengeId
- */
-const getChallengeById = async (req, res) => {
-  try {
-    const { groupId, challengeId } = req.params;
-    const userId = req.user.id;
-    const token = req.headers.authorization;
-
-    const challenge = await challengesService.getChallengeById(
-      parseInt(groupId), 
-      parseInt(challengeId), 
-      userId, 
-      token
-    );
-
-    return res.status(200).json({
-      success: true,
-      data: challenge,
-      message: 'Reto obtenido correctamente'
-    });
-
-  } catch (error) {
-    console.error('Error obteniendo reto:', error);
-    const statusCode = error.message.includes('no encontrado') ? 404 : 
-                       error.message.includes('miembros') ? 403 : 500;
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -157,25 +117,22 @@ const joinChallenge = async (req, res) => {
     const userId = req.user.id;
     const token = req.headers.authorization;
 
-    const progress = await challengesService.joinChallenge(
-      parseInt(groupId), 
-      parseInt(challengeId), 
-      userId, 
+    const participation = await challengesService.joinChallenge(
+      parseInt(groupId),
+      parseInt(challengeId),
+      userId,
       token
     );
 
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
-      data: progress,
+      data: participation,
       message: 'Te has unido al reto exitosamente'
     });
 
   } catch (error) {
     console.error('Error uniéndose al reto:', error);
-    const statusCode = error.message.includes('no encontrado') ? 404 : 
-                       error.message.includes('miembro') ? 403 : 
-                       error.message.includes('Ya estás') ? 400 : 500;
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -183,80 +140,41 @@ const joinChallenge = async (req, res) => {
 };
 
 /**
- * Actualizar progreso en el reto
+ * Actualizar progreso en un reto
  * POST /groups/:groupId/challenges/:challengeId/progress
- * Body: { currentPage }
+ * Body: { currentPage: number }
  */
-const updateProgress = async (req, res) => {
+const updateChallengeProgress = async (req, res) => {
   try {
     const { groupId, challengeId } = req.params;
     const userId = req.user.id;
+    const { currentPage } = req.body;
     const token = req.headers.authorization;
 
-    if (req.body.currentPage === undefined || req.body.currentPage < 0) {
+    if (currentPage === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Se requiere currentPage (número >= 0)'
+        message: 'La página actual es requerida'
       });
     }
 
     const progress = await challengesService.updateProgress(
-      parseInt(groupId), 
-      parseInt(challengeId), 
-      userId, 
-      req.body, 
+      parseInt(groupId),
+      parseInt(challengeId),
+      userId,
+      parseInt(currentPage),
       token
     );
-
-    const message = progress.isCompleted && progress.pointsEarned > 0
-      ? `¡Felicitaciones! Completaste el reto y ganaste ${progress.pointsEarned} puntos`
-      : 'Progreso actualizado correctamente';
 
     return res.status(200).json({
       success: true,
       data: progress,
-      message
+      message: 'Progreso actualizado correctamente'
     });
 
   } catch (error) {
     console.error('Error actualizando progreso:', error);
-    const statusCode = error.message.includes('no encontrado') ? 404 : 
-                       error.message.includes('participando') ? 400 : 500;
-    return res.status(statusCode).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/**
- * Obtener progreso general del reto
- * GET /groups/:groupId/challenges/:challengeId/progress
- */
-const getChallengeProgress = async (req, res) => {
-  try {
-    const { groupId, challengeId } = req.params;
-    const userId = req.user.id;
-    const token = req.headers.authorization;
-
-    const result = await challengesService.getChallengeProgress(
-      parseInt(groupId), 
-      parseInt(challengeId), 
-      userId, 
-      token
-    );
-
-    return res.status(200).json({
-      success: true,
-      data: result,
-      message: 'Progreso del reto obtenido correctamente'
-    });
-
-  } catch (error) {
-    console.error('Error obteniendo progreso:', error);
-    const statusCode = error.message.includes('no encontrado') ? 404 : 
-                       error.message.includes('miembros') ? 403 : 500;
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -270,27 +188,23 @@ const getChallengeProgress = async (req, res) => {
 const getChallengeRanking = async (req, res) => {
   try {
     const { groupId, challengeId } = req.params;
-    const userId = req.user.id;
     const token = req.headers.authorization;
 
-    const result = await challengesService.getChallengeRanking(
-      parseInt(groupId), 
-      parseInt(challengeId), 
-      userId, 
+    const ranking = await challengesService.getRanking(
+      parseInt(groupId),
+      parseInt(challengeId),
       token
     );
 
     return res.status(200).json({
       success: true,
-      data: result,
+      data: { ranking },
       message: 'Ranking obtenido correctamente'
     });
 
   } catch (error) {
     console.error('Error obteniendo ranking:', error);
-    const statusCode = error.message.includes('no encontrado') ? 404 : 
-                       error.message.includes('miembros') ? 403 : 500;
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -298,7 +212,7 @@ const getChallengeRanking = async (req, res) => {
 };
 
 /**
- * Archivar reto (solo admin)
+ * Archivar un reto (solo admin)
  * POST /groups/:groupId/challenges/:challengeId/archive
  */
 const archiveChallenge = async (req, res) => {
@@ -307,8 +221,8 @@ const archiveChallenge = async (req, res) => {
     const userId = req.user.id;
 
     const challenge = await challengesService.archiveChallenge(
-      parseInt(groupId), 
-      parseInt(challengeId), 
+      parseInt(groupId),
+      parseInt(challengeId),
       userId
     );
 
@@ -320,8 +234,7 @@ const archiveChallenge = async (req, res) => {
 
   } catch (error) {
     console.error('Error archivando reto:', error);
-    const statusCode = error.message.includes('no encontrado') ? 404 : 
-                       error.message.includes('administrador') ? 403 : 500;
+    const statusCode = error.message.includes('administrador') ? 403 : 500;
     return res.status(statusCode).json({
       success: false,
       message: error.message
@@ -330,9 +243,9 @@ const archiveChallenge = async (req, res) => {
 };
 
 /**
- * Reactivar reto archivado (solo admin)
+ * Reactivar un reto archivado (solo admin)
  * POST /groups/:groupId/challenges/:challengeId/reactivate
- * Body: { newEndDate }
+ * Body: { newEndDate: string }
  */
 const reactivateChallenge = async (req, res) => {
   try {
@@ -343,14 +256,14 @@ const reactivateChallenge = async (req, res) => {
     if (!newEndDate) {
       return res.status(400).json({
         success: false,
-        message: 'Se requiere newEndDate para reactivar el reto'
+        message: 'La nueva fecha de fin es requerida'
       });
     }
 
     const challenge = await challengesService.reactivateChallenge(
-      parseInt(groupId), 
-      parseInt(challengeId), 
-      userId, 
+      parseInt(groupId),
+      parseInt(challengeId),
+      userId,
       newEndDate
     );
 
@@ -362,8 +275,7 @@ const reactivateChallenge = async (req, res) => {
 
   } catch (error) {
     console.error('Error reactivando reto:', error);
-    const statusCode = error.message.includes('no encontrado') ? 404 : 
-                       error.message.includes('administrador') ? 403 : 400;
+    const statusCode = error.message.includes('administrador') ? 403 : 500;
     return res.status(statusCode).json({
       success: false,
       message: error.message
@@ -372,13 +284,11 @@ const reactivateChallenge = async (req, res) => {
 };
 
 module.exports = {
+  getChallenges,
   createChallenge,
-  getGroupChallenges,
   getActiveChallenge,
-  getChallengeById,
   joinChallenge,
-  updateProgress,
-  getChallengeProgress,
+  updateChallengeProgress,
   getChallengeRanking,
   archiveChallenge,
   reactivateChallenge

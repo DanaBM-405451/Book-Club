@@ -1,4 +1,3 @@
-// src/routes/friend.routes.js
 // src/routes/friends.routes.js
 const express = require('express');
 const router = express.Router();
@@ -12,28 +11,84 @@ const {
   removeFriend
 } = require('../controllers/friends.controller');
 
+// ✅ Aplicar middleware a TODAS las rutas de este archivo una sola vez
 router.use(authMiddleware);
 
+// Rutas (ya no necesitan 'authMiddleware' individualmente porque está arriba)
+
+/**
+ * @route POST /friends/request
+ * @desc Enviar solicitud de amistad
+ */
+router.post('/request', sendFriendRequest);
+
+/**
+ * @route GET /friends/requests
+ * @desc Obtener solicitudes de amistad recibidas
+ */
+router.get('/requests', getFriendRequests);
+
+/**
+ * @route POST /friends/:friendshipId/accept
+ * @desc Aceptar solicitud de amistad
+ */
+router.post('/:friendshipId/accept', acceptFriendRequest);
+
+/**
+ * @route POST /friends/:friendshipId/reject
+ * @desc Rechazar solicitud de amistad
+ */
+router.post('/:friendshipId/reject', rejectFriendRequest);
+
+/**
+ * @route GET /friends
+ * @desc Obtener lista de amigos
+ */
+router.get('/', getFriends);
+
+/**
+ * @route DELETE /friends/:friendshipId
+ * @desc Eliminar amistad
+ */
+router.delete('/:friendshipId', removeFriend);
+
+module.exports = router;
+// src/routes/friends.routes.js
+/*
+const express = require('express');
+const router = express.Router();
+const { authMiddleware } = require('../middleware/auth.middleware');
+const {
+  sendFriendRequest,
+  getFriendRequests,
+  acceptFriendRequest,
+  rejectFriendRequest,
+  getFriends,
+  removeFriend
+} = require('../controllers/friends.controller');
+
+router.use(authMiddleware);
+*/
 /**
  * @route POST /friends/request
  * @desc Enviar solicitud de amistad
  * @access Private
  */
-router.post('/request', authMiddleware, sendFriendRequest);
+//router.post('/request', authMiddleware, sendFriendRequest);
 
 /**
  * @route GET /friends/requests
  * @desc Obtener solicitudes de amistad recibidas
  * @access Private
  */
-router.get('/requests', authMiddleware, getFriendRequests);
+//router.get('/requests', authMiddleware, getFriendRequests);
 
 /**
  * @route POST /friends/:friendshipId/accept
  * @desc Aceptar solicitud de amistad
  * @access Private
  */
-router.post('/:friendshipId/accept', authMiddleware, acceptFriendRequest);
+//router.post('/:friendshipId/accept', authMiddleware, acceptFriendRequest);
 //router.post('/requests/:requestId/accept', friendsController.acceptFriendRequest);
 
 /**
@@ -41,7 +96,7 @@ router.post('/:friendshipId/accept', authMiddleware, acceptFriendRequest);
  * @desc Rechazar solicitud de amistad
  * @access Private
  */
-router.post('/:friendshipId/reject', authMiddleware, rejectFriendRequest);
+//router.post('/:friendshipId/reject', authMiddleware, rejectFriendRequest);
 //router.post('/requests/:requestId/reject', friendsController.rejectFriendRequest);
 
 
@@ -50,16 +105,16 @@ router.post('/:friendshipId/reject', authMiddleware, rejectFriendRequest);
  * @desc Obtener lista de amigos
  * @access Private
  */
-router.get('/', authMiddleware, getFriends);
+//router.get('/', authMiddleware, getFriends);
 
 /**
  * @route DELETE /friends/:friendshipId
  * @desc Eliminar amistad
  * @access Private
  */
-router.delete('/:friendshipId', authMiddleware, removeFriend);
+//router.delete('/:friendshipId', authMiddleware, removeFriend);
 
-module.exports = router;
+//module.exports = router;
 
 /*
 const express = require('express');

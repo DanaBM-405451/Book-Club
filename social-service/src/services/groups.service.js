@@ -173,36 +173,25 @@ class GroupsService {
 
   /**
    * Unirse a un grupo
-   * Historia 5.3: Grupos de lectura
    */
   async joinGroup(userId, groupId, token) {
     try {
-     const group = await prisma.group.findUnique({
-  where: { id: groupId },
-  include: {
-    _count: {
-      select: {
-        members: true
-      }
-    },
-    members: true,
-  },
-});
+      const group = await prisma.group.findUnique({
+        where: { id: groupId },
+        include: {
+          _count: { select: { members: true } },
+          members: true,
+        },
+      });
 
-      if (!group) {
-        throw new Error('Grupo no encontrado');
+      if (!group) throw new Error('Grupo no encontrado');
+
+      if (group._count.members >= group.maxMembers) {
+        throw new Error('El grupo está lleno');
       }
 
-      // Verificar si el grupo está lleno
-     if (group._count.members >= group.maxMembers) {
-  throw new Error('El grupo está lleno');
-}
-
-      // Verificar si ya es miembro
       const alreadyMember = group.members.some(m => m.userId === userId);
-      if (alreadyMember) {
-        throw new Error('Ya eres miembro de este grupo');
-      }
+      if (alreadyMember) throw new Error('Ya eres miembro de este grupo');
 
       // Agregar como miembro
       const member = await prisma.groupMember.create({
@@ -213,96 +202,22 @@ class GroupsService {
         },
       });
 
-     /* // Actualizar contador de miembros
-      await prisma.group.update({
-        where: { id: groupId },
-        data: {
-          currentMembers: {
-            increment: 1,
-          },
-        },
-      });*/
-
-      // Notificar al admin del grupo
+      // ✅ CORRECCIÓN AQUÍ: Usar group.createdBy como destinatario
       await this.createNotification(
-        group.createdBy,
-        'GROUP_JOIN',
-        'Nuevo miembro en tu grupo',
+        group.createdBy, // Destinatario (Admin del grupo)
+        userId,          // Remitente (Quien se une)
+        'GROUP_ACTIVITY', // Enum válido
+        'Nuevo miembro',
         `Un nuevo usuario se unió a ${group.name}`,
-        { groupId, userId }
+        { groupId: group.id, groupName: group.name }
       );
 
-      // Otorgar puntos XP
-      await externalService.awardXP(
-        userId,
-        10,
-        'Unirse a un grupo de lectura',
-        token
-      );
+      // Otorgar XP
+      await externalService.awardXP(userId, 10, 'Unirse a un grupo', token);
 
       return member;
     } catch (error) {
       console.error('Error uniéndose al grupo:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Salir de un grupo
-   * Historia 5.3: Grupos de lectura
-   */
-  async leaveGroup(userId, groupId) {
-    try {
-      const group = await prisma.group.findUnique({
-        where: { id: groupId },
-      });
-
-      if (!group) {
-        throw new Error('Grupo no encontrado');
-      }
-
-      // Verificar si es miembro
-      const membership = await prisma.groupMember.findUnique({
-        where: {
-          groupId_userId: {
-            groupId,
-            userId,
-          },
-        },
-      });
-
-      if (!membership) {
-        throw new Error('No eres miembro de este grupo');
-      }
-
-      // El creador no puede salir del grupo
-      if (group.createdBy === userId) {
-        throw new Error('El creador del grupo no puede salir. Debes eliminar el grupo o transferir la administración.');
-      }
-
-      // Eliminar membresía
-      await prisma.groupMember.delete({
-        where: {
-          groupId_userId: {
-            groupId,
-            userId,
-          },
-        },
-      });
-
-      // Actualizar contador de miembros
-      await prisma.group.update({
-        where: { id: groupId },
-        data: {
-          currentMembers: {
-            decrement: 1,
-          },
-        },
-      });
-
-      return { message: 'Has salido del grupo exitosamente' };
-    } catch (error) {
-      console.error('Error saliendo del grupo:', error);
       throw error;
     }
   }
@@ -438,7 +353,139 @@ class GroupsService {
       console.error('Error creando notificación:', error);
       return null;
     }
+  
   }
+
+  /**
+ * Obtener miembros del grupo
+ */
+async getGroupMembers(groupId, token) {
+  try {
+    const members = await prisma.groupMember.findMany({
+      where: { groupId },
+      orderBy: [
+        { role: 'asc' },
+        { joinedAt: 'asc' }
+      ],
+    });
+
+    // Obtener perfiles de usuarios
+    const userIds = members.map(m => m.userId);
+    const profiles = await externalService.getUserProfiles(userIds, token);
+    const profileMap = new Map(profiles.map(p => [p.userId, p]));
+
+    return members.map(member => ({
+      ...member,
+      username: profileMap.get(member.userId)?.username || 'Usuario',
+      email: profileMap.get(member.userId)?.email || null,
+    }));
+
+  } catch (error) {
+    console.error('Error obteniendo miembros:', error);
+    throw new Error('No se pudieron obtener los miembros');
+  }
+}
+
+/**
+ * Actualizar rol de un miembro
+ */
+async updateMemberRole(groupId, adminId, targetUserId, newRole) {
+  try {
+    // Verificar que quien hace la acción es admin
+    const adminMembership = await prisma.groupMember.findUnique({
+      where: {
+        groupId_userId: { groupId, userId: adminId }
+      }
+    });
+
+    if (!adminMembership || adminMembership.role !== 'ADMIN') {
+      throw new Error('Solo el administrador puede cambiar roles');
+    }
+
+    // Actualizar rol
+    return await prisma.groupMember.update({
+      where: {
+        groupId_userId: { groupId, userId: targetUserId }
+      },
+      data: { role: newRole }
+    });
+
+  } catch (error) {
+    console.error('Error actualizando rol:', error);
+    throw error;
+  }
+}
+
+/**
+ * Actualizar permisos de un miembro
+ */
+async updateMemberPermissions(groupId, adminId, targetUserId, canUploadBooks) {
+  try {
+    // Verificar que quien hace la acción es admin
+    const adminMembership = await prisma.groupMember.findUnique({
+      where: {
+        groupId_userId: { groupId, userId: adminId }
+      }
+    });
+
+    if (!adminMembership || adminMembership.role !== 'ADMIN') {
+      throw new Error('Solo el administrador puede cambiar permisos');
+    }
+
+    // Actualizar permisos
+    return await prisma.groupMember.update({
+      where: {
+        groupId_userId: { groupId, userId: targetUserId }
+      },
+      data: { canUploadBooks }
+    });
+
+  } catch (error) {
+    console.error('Error actualizando permisos:', error);
+    throw error;
+  }
+}
+
+/**
+ * Remover un miembro del grupo
+ */
+async removeMember(groupId, adminId, targetUserId) {
+  try {
+    // Verificar que quien hace la acción es admin
+    const adminMembership = await prisma.groupMember.findUnique({
+      where: {
+        groupId_userId: { groupId, userId: adminId }
+      }
+    });
+
+    if (!adminMembership || adminMembership.role !== 'ADMIN') {
+      throw new Error('Solo el administrador puede expulsar miembros');
+    }
+
+    // No se puede expulsar al creador del grupo
+    const group = await prisma.group.findUnique({
+      where: { id: groupId }
+    });
+
+    if (group.createdBy === targetUserId) {
+      throw new Error('No se puede expulsar al creador del grupo');
+    }
+
+    // Remover miembro
+    await prisma.groupMember.delete({
+      where: {
+        groupId_userId: { groupId, userId: targetUserId }
+      }
+    });
+
+    return { message: 'Miembro expulsado correctamente' };
+
+  } catch (error) {
+    console.error('Error expulsando miembro:', error);
+    throw error;
+  }
+}
+
 }
 
 module.exports = new GroupsService();

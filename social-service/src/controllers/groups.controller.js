@@ -1,4 +1,4 @@
-// src/controllers/group.controller.js
+// src/controllers/groups.controller.js
 
 const groupsService = require('../services/groups.service');
 
@@ -274,6 +274,130 @@ const revokeUploadPermission = async (req, res) => {
   }
 };
 
+/**
+ * Obtener miembros del grupo
+ * GET /groups/:groupId/members
+ */
+const getGroupMembers = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const token = req.headers.authorization;
+
+    const members = await groupsService.getGroupMembers(parseInt(groupId), token);
+
+    return res.status(200).json({
+      success: true,
+      data: members,
+      message: 'Miembros obtenidos correctamente'
+    });
+
+  } catch (error) {
+    console.error('Error obteniendo miembros:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Actualizar rol de un miembro (solo admin)
+ * PUT /groups/:groupId/members/:userId/role
+ * Body: { role: 'ADMIN' | 'MODERATOR' | 'MEMBER' }
+ */
+const updateMemberRole = async (req, res) => {
+  try {
+    const { groupId, userId: targetUserId } = req.params;
+    const adminId = req.user.id;
+    const { role } = req.body;
+
+    const member = await groupsService.updateMemberRole(
+      parseInt(groupId),
+      adminId,
+      parseInt(targetUserId),
+      role
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: member,
+      message: 'Rol actualizado correctamente'
+    });
+
+  } catch (error) {
+    console.error('Error actualizando rol:', error);
+    const statusCode = error.message.includes('administrador') ? 403 : 400;
+    return res.status(statusCode).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Actualizar permisos de un miembro (solo admin)
+ * PUT /groups/:groupId/members/:userId/permissions
+ * Body: { canUploadBooks: boolean }
+ */
+const updateMemberPermissions = async (req, res) => {
+  try {
+    const { groupId, userId: targetUserId } = req.params;
+    const adminId = req.user.id;
+    const { canUploadBooks } = req.body;
+
+    const member = await groupsService.updateMemberPermissions(
+      parseInt(groupId),
+      adminId,
+      parseInt(targetUserId),
+      canUploadBooks
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: member,
+      message: 'Permisos actualizados correctamente'
+    });
+
+  } catch (error) {
+    console.error('Error actualizando permisos:', error);
+    const statusCode = error.message.includes('administrador') ? 403 : 400;
+    return res.status(statusCode).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Remover un miembro del grupo (solo admin)
+ * DELETE /groups/:groupId/members/:userId
+ */
+const removeMember = async (req, res) => {
+  try {
+    const { groupId, userId: targetUserId } = req.params;
+    const adminId = req.user.id;
+
+    await groupsService.removeMember(
+      parseInt(groupId),
+      adminId,
+      parseInt(targetUserId)
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Miembro expulsado del grupo'
+    });
+
+  } catch (error) {
+    console.error('Error expulsando miembro:', error);
+    const statusCode = error.message.includes('administrador') ? 403 : 400;
+    return res.status(statusCode).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   createGroup,
   getPublicGroups,
@@ -283,9 +407,12 @@ module.exports = {
   getMyGroups,
   updateGroup,
   grantUploadPermission,
-  revokeUploadPermission
+  revokeUploadPermission,
+  getGroupMembers,
+  updateMemberRole,
+  updateMemberPermissions,
+  removeMember
 };
-
 //const prisma = require('../config/database');
 
 /**

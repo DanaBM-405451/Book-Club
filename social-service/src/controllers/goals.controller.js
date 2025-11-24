@@ -1,68 +1,27 @@
-// src/controllers/goal.controller.js
+// src/controllers/goals.controller.js
 
 const goalsService = require('../services/goals.service');
 
 /**
- * Crear meta de lectura (solo admin)
- * POST /groups/:groupId/goals
- * Body: { bookId, bookTitle?, bookAuthor?, bookCoverUrl?, targetPages?, startDate, endDate, frequency?, description? }
- */
-const createReadingGoal = async (req, res) => {
-  try {
-    const { groupId } = req.params;
-    const userId = req.user.id;
-    const token = req.headers.authorization;
-
-    if (!req.body.bookId || !req.body.startDate || !req.body.endDate) {
-      return res.status(400).json({
-        success: false,
-        message: 'Se requieren: bookId, startDate y endDate'
-      });
-    }
-
-    const goal = await goalsService.createGoal(parseInt(groupId), userId, req.body, token);
-
-    return res.status(201).json({
-      success: true,
-      data: goal,
-      message: 'Meta de lectura creada correctamente'
-    });
-
-  } catch (error) {
-    console.error('Error creando meta de lectura:', error);
-    const statusCode = error.message.includes('administrador') ? 403 : 
-                       error.message.includes('no existe') ? 404 : 400;
-    return res.status(statusCode).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/**
- * Obtener metas de lectura del grupo
+ * Obtener metas del grupo
  * GET /groups/:groupId/goals?includeInactive=false
  */
-const getGroupGoals = async (req, res) => {
+const getGoals = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const userId = req.user.id;
-    const token = req.headers.authorization;
     const includeInactive = req.query.includeInactive === 'true';
 
-    const goals = await goalsService.getGroupGoals(parseInt(groupId), userId, includeInactive, token);
+    const goals = await goalsService.getGoals(parseInt(groupId), includeInactive);
 
     return res.status(200).json({
       success: true,
       data: goals,
-      count: goals.length,
-      message: 'Metas de lectura obtenidas correctamente'
+      message: 'Metas obtenidas correctamente'
     });
 
   } catch (error) {
     console.error('Error obteniendo metas:', error);
-    const statusCode = error.message.includes('miembros') ? 403 : 500;
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -70,34 +29,71 @@ const getGroupGoals = async (req, res) => {
 };
 
 /**
- * Obtener meta activa del grupo
+ * Crear una meta de lectura
+ * POST /groups/:groupId/goals
+ * Body: { bookId, bookTitle, startDate, endDate, targetPages, frequency, description? }
+ */
+const createGoal = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const userId = req.user.id;
+    const token = req.headers.authorization;
+
+    if (!req.body.bookId || !req.body.targetPages || !req.body.startDate || !req.body.endDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Faltan campos requeridos'
+      });
+    }
+
+    const goal = await goalsService.createGoal(
+      parseInt(groupId),
+      userId,
+      req.body,
+      token
+    );
+
+    return res.status(201).json({
+      success: true,
+      data: goal,
+      message: 'Meta creada exitosamente'
+    });
+
+  } catch (error) {
+    console.error('Error creando meta:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Obtener meta activa
  * GET /groups/:groupId/goals/active
  */
 const getActiveGoal = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const userId = req.user.id;
-    const token = req.headers.authorization;
 
-    const goal = await goalsService.getActiveGoal(parseInt(groupId), userId, token);
+    const goal = await goalsService.getActiveGoal(parseInt(groupId));
 
     if (!goal) {
       return res.status(404).json({
         success: false,
-        message: 'No hay ninguna meta activa en este grupo'
+        message: 'No hay meta activa'
       });
     }
 
     return res.status(200).json({
       success: true,
       data: goal,
-      message: 'Meta activa obtenida correctamente'
+      message: 'Meta activa obtenida'
     });
 
   } catch (error) {
     console.error('Error obteniendo meta activa:', error);
-    const statusCode = error.message.includes('miembros') ? 403 : 500;
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -105,34 +101,31 @@ const getActiveGoal = async (req, res) => {
 };
 
 /**
- * Editar meta de lectura (solo admin)
+ * Actualizar una meta (solo admin)
  * PUT /groups/:groupId/goals/:goalId
- * Body: { bookTitle?, bookAuthor?, targetPages?, startDate?, endDate?, frequency?, description? }
+ * Body: { targetPages?, frequency?, description?, endDate? }
  */
-const updateReadingGoal = async (req, res) => {
+const updateGoal = async (req, res) => {
   try {
     const { groupId, goalId } = req.params;
     const userId = req.user.id;
-    const token = req.headers.authorization;
 
     const goal = await goalsService.updateGoal(
-      parseInt(groupId), 
-      parseInt(goalId), 
-      userId, 
-      req.body, 
-      token
+      parseInt(groupId),
+      parseInt(goalId),
+      userId,
+      req.body
     );
 
     return res.status(200).json({
       success: true,
       data: goal,
-      message: 'Meta de lectura actualizada correctamente'
+      message: 'Meta actualizada correctamente'
     });
 
   } catch (error) {
     console.error('Error actualizando meta:', error);
-    const statusCode = error.message.includes('no encontrada') ? 404 : 
-                       error.message.includes('administrador') ? 403 : 400;
+    const statusCode = error.message.includes('administrador') ? 403 : 500;
     return res.status(statusCode).json({
       success: false,
       message: error.message
@@ -141,35 +134,7 @@ const updateReadingGoal = async (req, res) => {
 };
 
 /**
- * Completar meta de lectura (solo admin)
- * POST /groups/:groupId/goals/:goalId/complete
- */
-const completeGoal = async (req, res) => {
-  try {
-    const { groupId, goalId } = req.params;
-    const userId = req.user.id;
-
-    const goal = await goalsService.completeGoal(parseInt(groupId), parseInt(goalId), userId);
-
-    return res.status(200).json({
-      success: true,
-      data: goal,
-      message: 'Meta de lectura completada'
-    });
-
-  } catch (error) {
-    console.error('Error completando meta:', error);
-    const statusCode = error.message.includes('no encontrada') ? 404 : 
-                       error.message.includes('administrador') ? 403 : 500;
-    return res.status(statusCode).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/**
- * Eliminar meta de lectura (solo admin)
+ * Eliminar una meta (solo admin)
  * DELETE /groups/:groupId/goals/:goalId
  */
 const deleteGoal = async (req, res) => {
@@ -177,17 +142,53 @@ const deleteGoal = async (req, res) => {
     const { groupId, goalId } = req.params;
     const userId = req.user.id;
 
-    const result = await goalsService.deleteGoal(parseInt(groupId), parseInt(goalId), userId);
+    await goalsService.deleteGoal(
+      parseInt(groupId),
+      parseInt(goalId),
+      userId
+    );
 
     return res.status(200).json({
       success: true,
-      message: result.message
+      message: 'Meta eliminada correctamente'
     });
 
   } catch (error) {
     console.error('Error eliminando meta:', error);
-    const statusCode = error.message.includes('no encontrada') ? 404 : 
-                       error.message.includes('administrador') ? 403 : 500;
+    const statusCode = error.message.includes('administrador') ? 403 : 500;
+    return res.status(statusCode).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Marcar meta como completada (solo admin)
+ * POST /groups/:groupId/goals/:goalId/complete
+ */
+const completeGoal = async (req, res) => {
+  try {
+    const { groupId, goalId } = req.params;
+    const userId = req.user.id;
+    const token = req.headers.authorization;
+
+    const goal = await goalsService.completeGoal(
+      parseInt(groupId),
+      parseInt(goalId),
+      userId,
+      token
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: goal,
+      message: 'Meta completada correctamente'
+    });
+
+  } catch (error) {
+    console.error('Error completando meta:', error);
+    const statusCode = error.message.includes('administrador') ? 403 : 500;
     return res.status(statusCode).json({
       success: false,
       message: error.message
@@ -196,12 +197,12 @@ const deleteGoal = async (req, res) => {
 };
 
 module.exports = {
-  createReadingGoal,
-  getGroupGoals,
+  getGoals,
+  createGoal,
   getActiveGoal,
-  updateReadingGoal,
-  completeGoal,
-  deleteGoal
+  updateGoal,
+  deleteGoal,
+  completeGoal
 };
 //const prisma = require('../config/database');
 

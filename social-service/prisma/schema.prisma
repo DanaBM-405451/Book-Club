@@ -466,6 +466,7 @@ enum NotificationType {
   // Amistades
   FRIEND_REQUEST
   FRIEND_ACCEPTED
+  REJECTED
   
   // Grupos
   GROUP_INVITE

@@ -1,69 +1,45 @@
 // src/routes/forum.routes.js
-
 const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/auth.middleware');
-const {
-  createPost,
-  getGroupPosts,
-  getPostById,
-  createComment,
-  getPostComments,
-  deletePost,
-  deleteComment
-} = require('../controllers/forum.controller');
+const forumController = require('../controllers/forum.controller');
 
 /**
- * @route POST /groups/:groupId/posts
- * @desc Crear publicación en el foro del grupo
- * @access Private (solo miembros)
+ * @route GET /forum/posts
+ * @desc Obtener todas las publicaciones del foro
+ * @access Private
  */
-router.post('/:groupId/posts', authMiddleware, createPost);
+router.get('/posts', authMiddleware, forumController.getGroupPosts);
 
 /**
- * @route GET /groups/:groupId/posts
- * @desc Obtener publicaciones del grupo
- * @access Private (solo miembros)
+ * @route POST /forum/posts
+ * @desc Crear una nueva publicación
+ * @access Private
  */
-router.get('/:groupId/posts', authMiddleware, getGroupPosts);
+router.post('/posts', authMiddleware, forumController.createPost);
 
 /**
- * @route GET /groups/:groupId/posts/:postId
- * @desc Obtener detalle de un post
- * @access Private (solo miembros)
+ * @route DELETE /forum/posts/:postId
+ * @desc Eliminar una publicación
+ * @access Private
  */
-router.get('/:groupId/posts/:postId', authMiddleware, getPostById);
+router.delete('/posts/:postId', authMiddleware, forumController.deletePost);
 
 /**
- * @route DELETE /groups/:groupId/posts/:postId
- * @desc Eliminar post
- * @access Private (autor o admin)
- */
-router.delete('/:groupId/posts/:postId', authMiddleware, deletePost);
-
-/**
- * @route POST /groups/:groupId/posts/:postId/comments
- * @desc Crear comentario en una publicación
- * @access Private (solo miembros)
- */
-router.post('/:groupId/posts/:postId/comments', authMiddleware, createComment);
-
-/**
- * @route GET /groups/:groupId/posts/:postId/comments
+ * @route GET /forum/posts/:postId/comments
  * @desc Obtener comentarios de una publicación
- * @access Private (solo miembros)
+ * @access Private
  */
-router.get('/:groupId/posts/:postId/comments', authMiddleware, getPostComments);
+router.get('/posts/:postId/comments', authMiddleware, forumController.getPostComments);
 
 /**
- * @route DELETE /groups/:groupId/posts/:postId/comments/:commentId
- * @desc Eliminar comentario
- * @access Private (autor o admin)
+ * @route POST /forum/posts/:postId/comments
+ * @desc Crear un comentario
+ * @access Private
  */
-router.delete('/:groupId/posts/:postId/comments/:commentId', authMiddleware, deleteComment);
+router.post('/posts/:postId/comments', authMiddleware, forumController.createComment);
 
 module.exports = router;
-
 /*
 const express = require('express');
 const router = express.Router();

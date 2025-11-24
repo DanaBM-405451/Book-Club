@@ -1,543 +1,290 @@
-// social-service/src/services/forum.service.js
+// src/services/forum.service.js
 
 const { prisma } = require('../config/database');
 const externalService = require('./external.service');
-const { createPaginatedResponse, sanitizeText, createNotificationMetadata } = require('../utils/helpers');
+const { createPaginatedResponse } = require('../utils/helpers');
 
 class ForumService {
   /**
-   * Crear un post en el foro del grupo
-   * Historia 5.4: Foro de grupo
+   * Obtener publicaciones del grupo
    */
-  async createPost(groupId, userId, data, token) {
+  async getGroupPosts(groupId, page = 1, limit = 20) {
     try {
-      const { content, bookId, bookTitle, bookAuthor, bookCoverUrl, uploadedFileUrl, fileType } = data;
-
-      // Verificar que el usuario es miembro del grupo
-      const membership = await prisma.groupMember.findUnique({
-        where: {
-          groupId_userId: {
-            groupId,
-            userId,
-          },
-        },
-      });
-
-      if (!membership) {
-        throw new Error('Debes ser miembro del grupo para crear posts');
-      }
-
-      // Si se adjunta un libro, validar permisos
-      if (bookId || uploadedFileUrl) {
-        // Si es admin o tiene permiso especial, puede subir libros
-        if (membership.role !== 'ADMIN' && !membership.canUploadBooks) {
-          throw new Error('No tienes permiso para adjuntar libros');
-        }
-
-        // Si hay bookId, verificar que el libro existe
-        if (bookId) {
-          try {
-            await externalService.getBookById(bookId, token);
-          } catch (error) {
-            console.warn('No se pudo validar el libro:', error.message);                    
-          }
-        }
-      }
-
-      // Sanitizar contenido
-      const sanitizedContent = sanitizeText(content);
-
-      // Crear el post
-      const post = await prisma.groupPost.create({
-        data: {
-          groupId,
-          userId,
-          content: sanitizedContent,
-          bookId,
-          bookTitle,
-          bookAuthor,
-          bookCoverUrl,
-          uploadedFileUrl,
-          fileType,
-        },
-      });
-
-      // Notificar a otros miembros del grupo
-      await this.notifyGroupMembers(
-        groupId,
-        userId,
-        'NEW_POST',
-        'Nuevo post en el grupo',
-        `Se ha publicado un nuevo post`,
-        { postId: post.id, groupId }
-      );
-
-      // Otorgar puntos XP
-      await externalService.awardXP(
-        userId,
-        5,
-        'Crear post en grupo',
-        token
-      );
-
-      return post;
-    } catch (error) {
-      console.error('Error creando post:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Listar posts de un grupo
-   * Historia 5.4: Foro de grupo
-   */
-  async getGroupPosts(groupId, userId, page = 1, limit = 20, token) {
-    try {
-      // Verificar que el usuario es miembro del grupo
-      const membership = await prisma.groupMember.findUnique({
-        where: {
-          groupId_userId: {
-            groupId,
-            userId,
-          },
-        },
-      });
-
-      if (!membership) {
-        throw new Error('Solo los miembros pueden ver el foro del grupo');
-      }
-
       const skip = (page - 1) * limit;
 
       const [posts, total] = await Promise.all([
         prisma.groupPost.findMany({
-          where: {
-            groupId,
-            isDeleted: false,
-          },
+          where: { groupId },
           skip,
           take: limit,
-          orderBy: [
-            { isPinned: 'desc' }, // Posts fijados primero
-            { createdAt: 'desc' }, // Más recientes primero
-          ],
+          orderBy: { createdAt: 'desc' },
           include: {
             _count: {
-              select: {
-                comments: true,
-              },
-            },
-          },
+              select: { comments: true }
+            }
+          }
         }),
         prisma.groupPost.count({
-          where: {
-            groupId,
-            isDeleted: false,
-          },
-        }),
+          where: { groupId }
+        })
       ]);
 
-      // Obtener perfiles de los autores
+      // Obtener información de los autores
       const authorIds = [...new Set(posts.map(p => p.userId))];
-      const authors = await externalService.getUserProfiles(authorIds, token);
+      const authors = await externalService.getUserProfiles(authorIds, null);
       const authorMap = new Map(authors.map(a => [a.userId, a]));
 
-      // Si hay libros adjuntos, obtener su información
-      const bookIds = posts
-        .filter(p => p.bookId)
-        .map(p => p.bookId);
+      // Obtener información de los libros si existen
+      const bookIds = posts.filter(p => p.bookId).map(p => p.bookId);
+      let booksMap = new Map();
       
-      const booksData = [];
-      for (const bookId of [...new Set(bookIds)]) {
+      if (bookIds.length > 0) {
         try {
-          const book = await externalService.getBookById(bookId, token);
-          booksData.push(book);
+          const books = await externalService.getBooksByIds(bookIds, null);
+          booksMap = new Map(books.map(b => [b.id, b]));
         } catch (error) {
-          console.error(`Error obteniendo libro ${bookId}:`, error);
+          console.log('Error obteniendo libros:', error.message);
         }
       }
-      
-      const bookMap = new Map(booksData.map(b => [b.id, b]));
 
-      // Mapear posts con información adicional
       const postsWithInfo = posts.map(post => ({
-        ...post,
-        author: authorMap.get(post.userId) || null,
-        book: post.bookId ? bookMap.get(post.bookId) || null : null,
-        commentsCount: post._count.comments,
+        id: post.id,
+        content: post.content,
+        userId: post.userId,
+        bookId: post.bookId,
+        groupId: post.groupId,
+        createdAt: post.createdAt,
+        updatedAt: post.updatedAt,
+        author: authorMap.get(post.userId) || { username: 'Usuario' },
+        book: post.bookId ? booksMap.get(post.bookId) || null : null,
+        commentsCount: post._count.comments
       }));
 
       return createPaginatedResponse(postsWithInfo, page, limit, total);
+
     } catch (error) {
-      console.error('Error obteniendo posts del grupo:', error);
-      throw error;
+      console.error('Error obteniendo publicaciones:', error);
+      throw new Error('No se pudieron obtener las publicaciones');
     }
   }
 
   /**
-   * Obtener un post específico con sus comentarios
-   * Historia 5.4: Foro de grupo
+   * Crear una publicación
    */
-  async getPostById(postId, userId, token) {
+  async createPost(groupId, userId, data, token) {
     try {
-      const post = await prisma.groupPost.findUnique({
-        where: { id: postId },
-        include: {
-          _count: {
-            select: {
-              comments: true,
-            },
-          },
-        },
-      });
-
-      if (!post || post.isDeleted) {
-        throw new Error('Post no encontrado');
-      }
+      const { content, bookId } = data;
 
       // Verificar que el usuario es miembro del grupo
       const membership = await prisma.groupMember.findUnique({
         where: {
-          groupId_userId: {
-            groupId: post.groupId,
-            userId,
-          },
-        },
+          groupId_userId: { groupId, userId }
+        }
       });
 
       if (!membership) {
-        throw new Error('Solo los miembros pueden ver este post');
+        throw new Error('Debes ser miembro del grupo para publicar');
       }
 
-      // Obtener perfil del autor
-      const author = await externalService.getUserProfile(post.userId, token);
-
-      // Si hay libro adjunto, obtener su información
-      let book = null;
-      if (post.bookId) {
-        try {
-          book = await externalService.getBookById(post.bookId, token);
-        } catch (error) {
-          console.error(`Error obteniendo libro ${post.bookId}:`, error);
-        }
-      }
-
-      return {
-        ...post,
-        author,
-        book,
-        commentsCount: post._count.comments,
-      };
-    } catch (error) {
-      console.error('Error obteniendo post:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Crear comentario en un post
-   * Historia 5.4: Foro de grupo (comentarios anidados)
-   */
-  async createComment(postId, userId, data, token) {
-    try {
-      const { content, parentCommentId } = data;
-
-      // Obtener el post
-      const post = await prisma.groupPost.findUnique({
-        where: { id: postId },
-      });
-
-      if (!post || post.isDeleted) {
-        throw new Error('Post no encontrado');
-      }
-
-      // Verificar que el usuario es miembro del grupo
-      const membership = await prisma.groupMember.findUnique({
-        where: {
-          groupId_userId: {
-            groupId: post.groupId,
-            userId,
-          },
-        },
-      });
-
-      if (!membership) {
-        throw new Error('Solo los miembros pueden comentar');
-      }
-
-      // Si es una respuesta, verificar que el comentario padre existe
-      if (parentCommentId) {
-        const parentComment = await prisma.groupComment.findUnique({
-          where: { id: parentCommentId },
-        });
-
-        if (!parentComment || parentComment.postId !== postId) {
-          throw new Error('Comentario padre no válido');
-        }
-      }
-
-      // Sanitizar contenido
-      const sanitizedContent = sanitizeText(content);
-
-      // Crear el comentario
-      const comment = await prisma.groupComment.create({
+      // Crear la publicación
+      const post = await prisma.groupPost.create({
         data: {
-          postId,
+          groupId,
           userId,
-          content: sanitizedContent,
-          parentCommentId,
-        },
-      });
-
-      // Notificar al autor del post (si no es el mismo usuario)
-      if (post.userId !== userId) {
-        await this.createNotification(
-          post.userId,
-          userId, // ✅ senderId
-          'NEW_COMMENT',
-          'Nuevo comentario en tu post',
-          `Alguien comentó en tu publicación`,
-          { postId, commentId: comment.id, groupId: post.groupId }
-        );
-      }
-
-      // Otorgar puntos XP
-      await externalService.awardXP(
-        userId,
-        2,
-        'Comentar en post de grupo',
-        token
-      );
-
-      return comment;
-    } catch (error) {
-      console.error('Error creando comentario:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Obtener comentarios de un post (con anidamiento)
-   * Historia 5.4: Foro de grupo
-   */
-  async getPostComments(postId, userId, token) {
-    try {
-      // Obtener el post
-      const post = await prisma.groupPost.findUnique({
-        where: { id: postId },
-      });
-
-      if (!post || post.isDeleted) {
-        throw new Error('Post no encontrado');
-      }
-
-      // Verificar que el usuario es miembro del grupo
-      const membership = await prisma.groupMember.findUnique({
-        where: {
-          groupId_userId: {
-            groupId: post.groupId,
-            userId,
-          },
-        },
-      });
-
-      if (!membership) {
-        throw new Error('Solo los miembros pueden ver los comentarios');
-      }
-
-      // Obtener todos los comentarios
-      const comments = await prisma.groupComment.findMany({
-        where: {
-          postId,
-          isDeleted: false,
-        },
-        orderBy: {
-          createdAt: 'asc',
-        },
-      });
-
-      // Obtener perfiles de los autores
-      const authorIds = [...new Set(comments.map(c => c.userId))];
-      const authors = await externalService.getUserProfiles(authorIds, token);
-      const authorMap = new Map(authors.map(a => [a.userId, a]));
-
-      // Organizar comentarios en estructura anidada
-      const commentsWithAuthors = comments.map(comment => ({
-        ...comment,
-        author: authorMap.get(comment.userId) || null,
-        replies: [],
-      }));
-
-      // Crear mapa de comentarios por ID
-      const commentsMap = new Map(commentsWithAuthors.map(c => [c.id, c]));
-
-      // Organizar en árbol (comentarios de nivel superior y sus respuestas)
-      const topLevelComments = [];
-
-      commentsWithAuthors.forEach(comment => {
-        if (comment.parentCommentId) {
-          // Es una respuesta, agregarlo al padre
-          const parent = commentsMap.get(comment.parentCommentId);
-          if (parent) {
-            parent.replies.push(comment);
-          }
-        } else {
-          // Es un comentario de nivel superior
-          topLevelComments.push(comment);
+          content,
+          bookId: bookId ? parseInt(bookId) : null
         }
       });
 
-      return topLevelComments;
+      // Otorgar XP
+      try {
+        await externalService.awardXP(
+          userId,
+          5,
+          'Crear publicación en grupo',
+          token
+        );
+      } catch (error) {
+        console.log('Error otorgando XP:', error.message);
+      }
+
+      return post;
+
     } catch (error) {
-      console.error('Error obteniendo comentarios:', error);
+      console.error('Error creando publicación:', error);
       throw error;
     }
   }
 
   /**
-   * Eliminar post (solo autor o admin)
+   * Eliminar una publicación
    */
-  async deletePost(postId, userId) {
+  async deletePost(groupId, postId, userId) {
     try {
       const post = await prisma.groupPost.findUnique({
-        where: { id: postId },
+        where: { id: postId }
       });
 
-      if (!post) {
-        throw new Error('Post no encontrado');
-      }
-
-      // Verificar permisos: autor del post o admin del grupo
-      const membership = await prisma.groupMember.findUnique({
-        where: {
-          groupId_userId: {
-            groupId: post.groupId,
-            userId,
-          },
-        },
-      });
-
-      if (!membership) {
-        throw new Error('No tienes permiso para eliminar este post');
-      }
-
-      const canDelete = post.userId === userId || membership.role === 'ADMIN';
-
-      if (!canDelete) {
-        throw new Error('Solo el autor o el administrador pueden eliminar este post');
-      }
-
-      // Soft delete
-      await prisma.groupPost.update({
-        where: { id: postId },
-        data: {
-          isDeleted: true,
-          deletedAt: new Date(),
-        },
-      });
-
-      return { message: 'Post eliminado exitosamente' };
-    } catch (error) {
-      console.error('Error eliminando post:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Eliminar comentario (solo autor o admin)
-   */
-  async deleteComment(commentId, userId) {
-    try {
-      const comment = await prisma.groupComment.findUnique({
-        where: { id: commentId },
-        include: {
-          post: true,
-        },
-      });
-
-      if (!comment) {
-        throw new Error('Comentario no encontrado');
+      if (!post || post.groupId !== groupId) {
+        throw new Error('Publicación no encontrada');
       }
 
       // Verificar permisos
       const membership = await prisma.groupMember.findUnique({
         where: {
-          groupId_userId: {
-            groupId: comment.post.groupId,
-            userId,
-          },
-        },
+          groupId_userId: { groupId, userId }
+        }
       });
 
-      if (!membership) {
-        throw new Error('No tienes permiso para eliminar este comentario');
-      }
-
-      const canDelete = comment.userId === userId || membership.role === 'ADMIN';
+      const canDelete = post.userId === userId || 
+                       (membership && membership.role === 'ADMIN');
 
       if (!canDelete) {
-        throw new Error('Solo el autor o el administrador pueden eliminar este comentario');
+        throw new Error('No tienes permiso para eliminar esta publicación');
       }
 
-      // Soft delete
-      await prisma.groupComment.update({
-        where: { id: commentId },
-        data: {
-          isDeleted: true,
-          deletedAt: new Date(),
-        },
+      // Eliminar comentarios primero
+      await prisma.groupComment.deleteMany({
+        where: { postId }
       });
 
-      return { message: 'Comentario eliminado exitosamente' };
+      // Eliminar publicación
+      await prisma.groupPost.delete({
+        where: { id: postId }
+      });
+
+      return { message: 'Publicación eliminada correctamente' };
+
     } catch (error) {
-      console.error('Error eliminando comentario:', error);
+      console.error('Error eliminando publicación:', error);
       throw error;
     }
   }
 
   /**
-   * Notificar a todos los miembros del grupo (excepto el autor de la acción)
+   * Obtener comentarios de una publicación
    */
-  async notifyGroupMembers(groupId, excludeUserId, type, title, message, metadata = {}) {
-    try {
-      const members = await prisma.groupMember.findMany({
-        where: {
-          groupId,
-          userId: { not: excludeUserId },
-        },
-        select: {
-          userId: true,
-        },
-      });
+  /**
+ * Obtener comentarios de una publicación
+ */
+async getPostComments(groupId, postId, token) {
+  try {
+    const comments = await prisma.groupComment.findMany({
+      where: { 
+        postId,
+        isDeleted: false  // ✅ Solo mostrar comentarios no eliminados
+      },
+      orderBy: { createdAt: 'asc' }
+    });
 
-      const notifications = members.map(member =>
-        this.createNotification(member.userId, excludeUserId, type, title, message, metadata)
-      );
-
-      await Promise.all(notifications);
-    } catch (error) {
-      console.error('Error notificando a miembros del grupo:', error);
+    if (comments.length === 0) {
+      return [];
     }
+
+    // Obtener información de los autores
+    const authorIds = [...new Set(comments.map(c => c.userId))];
+    const authors = await externalService.getUserProfiles(authorIds, token);
+    const authorMap = new Map(authors.map(a => [a.userId, a]));
+
+    // Organizar comentarios en árbol
+    const commentsMap = new Map();
+    const rootComments = [];
+
+    // Primero crear todos los comentarios con su info
+    comments.forEach(comment => {
+      const commentWithInfo = {
+        id: comment.id,
+        postId: comment.postId,
+        userId: comment.userId,
+        content: comment.content,
+        parentCommentId: comment.parentCommentId,  // ✅ Usar el nombre correcto
+        isDeleted: comment.isDeleted,
+        createdAt: comment.createdAt,
+        updatedAt: comment.updatedAt,
+        author: authorMap.get(comment.userId) || { username: 'Usuario' },
+        replies: []
+      };
+      commentsMap.set(comment.id, commentWithInfo);
+    });
+
+    // Luego organizar en árbol
+    comments.forEach(comment => {
+      const commentWithInfo = commentsMap.get(comment.id);
+      if (comment.parentCommentId) {
+        const parent = commentsMap.get(comment.parentCommentId);
+        if (parent) {
+          parent.replies.push(commentWithInfo);
+        } else {
+          // Si no encuentra el padre, ponerlo como raíz
+          rootComments.push(commentWithInfo);
+        }
+      } else {
+        rootComments.push(commentWithInfo);
+      }
+    });
+
+    return rootComments;
+
+  } catch (error) {
+    console.error('Error obteniendo comentarios:', error);
+    throw new Error('No se pudieron obtener los comentarios');
   }
+}
 
   /**
-   * Crear notificación
+   * Crear un comentario
    */
-  async createNotification(userId, senderId, type, title, message, metadata = {}) { // ✅ Agregado senderId
+  async createComment(groupId, postId, userId, data, token) {
     try {
-      return await prisma.notification.create({
-        data: {
-          userId,
-          senderId, // ✅ Agregado
-          type,
-          title,
-          message,
-          metadata: createNotificationMetadata(type, metadata),
-        },
+      const { content, parentId } = data;
+
+      // Verificar que el usuario es miembro
+      const membership = await prisma.groupMember.findUnique({
+        where: {
+          groupId_userId: { groupId, userId }
+        }
       });
+
+      if (!membership) {
+        throw new Error('Debes ser miembro del grupo para comentar');
+      }
+
+      // Verificar que la publicación existe
+      const post = await prisma.groupPost.findUnique({
+        where: { id: postId }
+      });
+
+      if (!post || post.groupId !== groupId) {
+        throw new Error('Publicación no encontrada');
+      }
+
+      // Crear comentario
+      const comment = await prisma.groupComment.create({
+        data: {
+          postId,
+          userId,
+          content,
+          parentCommentId: parentId ? parseInt(parentId) : null
+        }
+      });
+
+      // Otorgar XP
+      try {
+        await externalService.awardXP(
+          userId,
+          2,
+          'Comentar en grupo',
+          token
+        );
+      } catch (error) {
+        console.log('Error otorgando XP:', error.message);
+      }
+
+      return comment;
+
     } catch (error) {
-      console.error('Error creando notificación:', error);
-      return null;
+      console.error('Error creando comentario:', error);
+      throw error;
     }
   }
 }

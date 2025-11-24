@@ -1,11 +1,42 @@
-// src/controllers/proposal.controller.js
+// src/controllers/proposals.controller.js
 
 const proposalsService = require('../services/proposals.service');
 
 /**
- * Proponer un libro para el grupo
+ * Obtener propuestas del grupo
+ * GET /groups/:groupId/proposals?includeInactive=false
+ */
+const getProposals = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const userId = req.user.id;
+    const includeInactive = req.query.includeInactive === 'true';
+
+    const result = await proposalsService.getProposals(
+      parseInt(groupId),
+      userId,
+      includeInactive
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+      message: 'Propuestas obtenidas correctamente'
+    });
+
+  } catch (error) {
+    console.error('Error obteniendo propuestas:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Crear una propuesta de libro
  * POST /groups/:groupId/proposals
- * Body: { bookId?, bookTitle, bookAuthor?, bookCoverUrl?, bookDescription?, source, votingEndDate? }
+ * Body: { bookId?, bookTitle, bookAuthor?, bookDescription?, votingEndDate? }
  */
 const createProposal = async (req, res) => {
   try {
@@ -13,26 +44,29 @@ const createProposal = async (req, res) => {
     const userId = req.user.id;
     const token = req.headers.authorization;
 
-    if (!req.body.bookTitle) {
+    if (!req.body.bookTitle || req.body.bookTitle.trim().length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Se requiere el título del libro (bookTitle)'
+        message: 'El título del libro es requerido'
       });
     }
 
-    const proposal = await proposalsService.createProposal(parseInt(groupId), userId, req.body, token);
+    const proposal = await proposalsService.createProposal(
+      parseInt(groupId),
+      userId,
+      req.body,
+      token
+    );
 
     return res.status(201).json({
       success: true,
       data: proposal,
-      message: 'Libro propuesto correctamente'
+      message: 'Propuesta creada exitosamente'
     });
 
   } catch (error) {
-    console.error('Error proponiendo libro:', error);
-    const statusCode = error.message.includes('miembro') ? 403 : 
-                       error.message.includes('ya está propuesto') ? 400 : 500;
-    return res.status(statusCode).json({
+    console.error('Error creando propuesta:', error);
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -40,106 +74,29 @@ const createProposal = async (req, res) => {
 };
 
 /**
- * Obtener propuestas de libros del grupo
- * GET /groups/:groupId/proposals?includeInactive=false&page=1&limit=20
- */
-const getGroupProposals = async (req, res) => {
-  try {
-    const { groupId } = req.params;
-    const userId = req.user.id;
-    const token = req.headers.authorization;
-    const includeInactive = req.query.includeInactive === 'true';
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-
-    const result = await proposalsService.getGroupProposals(
-      parseInt(groupId), 
-      userId, 
-      includeInactive, 
-      page, 
-      limit, 
-      token
-    );
-
-    return res.status(200).json({
-      success: true,
-      data: result.data,
-      pagination: result.pagination,
-      message: 'Propuestas de libros obtenidas correctamente'
-    });
-
-  } catch (error) {
-    console.error('Error obteniendo propuestas:', error);
-    const statusCode = error.message.includes('miembros') ? 403 : 500;
-    return res.status(statusCode).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/**
- * Obtener detalle de una propuesta
- * GET /groups/:groupId/proposals/:proposalId
- */
-const getProposalById = async (req, res) => {
-  try {
-    const { groupId, proposalId } = req.params;
-    const userId = req.user.id;
-    const token = req.headers.authorization;
-
-    const proposal = await proposalsService.getProposalById(
-      parseInt(groupId), 
-      parseInt(proposalId), 
-      userId, 
-      token
-    );
-
-    return res.status(200).json({
-      success: true,
-      data: proposal,
-      message: 'Propuesta obtenida correctamente'
-    });
-
-  } catch (error) {
-    console.error('Error obteniendo propuesta:', error);
-    const statusCode = error.message.includes('no encontrada') ? 404 : 
-                       error.message.includes('miembros') ? 403 : 500;
-    return res.status(statusCode).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/**
- * Votar por una propuesta de libro
+ * Votar por una propuesta
  * POST /groups/:groupId/proposals/:proposalId/vote
  */
 const voteProposal = async (req, res) => {
   try {
     const { groupId, proposalId } = req.params;
     const userId = req.user.id;
-    const token = req.headers.authorization;
 
-    const result = await proposalsService.voteProposal(
-      parseInt(groupId), 
-      parseInt(proposalId), 
-      userId, 
-      token
+    const vote = await proposalsService.voteProposal(
+      parseInt(groupId),
+      parseInt(proposalId),
+      userId
     );
 
     return res.status(200).json({
       success: true,
-      data: result,
-      message: result.message
+      data: vote,
+      message: 'Voto registrado correctamente'
     });
 
   } catch (error) {
-    console.error('Error votando:', error);
-    const statusCode = error.message.includes('no encontrada') ? 404 : 
-                       error.message.includes('miembro') ? 403 : 
-                       error.message.includes('cerrada') || error.message.includes('finalizado') ? 400 : 500;
+    console.error('Error votando propuesta:', error);
+    const statusCode = error.message.includes('ya votaste') ? 400 : 500;
     return res.status(statusCode).json({
       success: false,
       message: error.message
@@ -148,30 +105,31 @@ const voteProposal = async (req, res) => {
 };
 
 /**
- * Cerrar votación (solo admin)
+ * Cerrar votación de una propuesta (solo admin)
  * POST /groups/:groupId/proposals/:proposalId/close
  */
 const closeProposal = async (req, res) => {
   try {
     const { groupId, proposalId } = req.params;
     const userId = req.user.id;
+    const token = req.headers.authorization;
 
-    const proposal = await proposalsService.closeProposal(
-      parseInt(groupId), 
-      parseInt(proposalId), 
-      userId
+    const result = await proposalsService.closeProposal(
+      parseInt(groupId),
+      parseInt(proposalId),
+      userId,
+      token
     );
 
     return res.status(200).json({
       success: true,
-      data: proposal,
+      data: result,
       message: 'Votación cerrada correctamente'
     });
 
   } catch (error) {
-    console.error('Error cerrando votación:', error);
-    const statusCode = error.message.includes('no encontrada') ? 404 : 
-                       error.message.includes('administrador') ? 403 : 400;
+    console.error('Error cerrando propuesta:', error);
+    const statusCode = error.message.includes('administrador') ? 403 : 500;
     return res.status(statusCode).json({
       success: false,
       message: error.message
@@ -180,7 +138,7 @@ const closeProposal = async (req, res) => {
 };
 
 /**
- * Cancelar propuesta (admin o proponente)
+ * Cancelar una propuesta
  * DELETE /groups/:groupId/proposals/:proposalId
  */
 const cancelProposal = async (req, res) => {
@@ -188,22 +146,20 @@ const cancelProposal = async (req, res) => {
     const { groupId, proposalId } = req.params;
     const userId = req.user.id;
 
-    const proposal = await proposalsService.cancelProposal(
-      parseInt(groupId), 
-      parseInt(proposalId), 
+    await proposalsService.cancelProposal(
+      parseInt(groupId),
+      parseInt(proposalId),
       userId
     );
 
     return res.status(200).json({
       success: true,
-      data: proposal,
       message: 'Propuesta cancelada correctamente'
     });
 
   } catch (error) {
     console.error('Error cancelando propuesta:', error);
-    const statusCode = error.message.includes('no encontrada') ? 404 : 
-                       error.message.includes('permiso') ? 403 : 400;
+    const statusCode = error.message.includes('permiso') ? 403 : 500;
     return res.status(statusCode).json({
       success: false,
       message: error.message
@@ -212,33 +168,31 @@ const cancelProposal = async (req, res) => {
 };
 
 /**
- * Obtener propuesta ganadora del grupo
+ * Obtener libro ganador actual
  * GET /groups/:groupId/proposals/winner
  */
-const getWinningProposal = async (req, res) => {
+const getWinner = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const userId = req.user.id;
 
-    const proposal = await proposalsService.getWinningProposal(parseInt(groupId), userId);
+    const winner = await proposalsService.getWinner(parseInt(groupId));
 
-    if (!proposal) {
+    if (!winner) {
       return res.status(404).json({
         success: false,
-        message: 'No hay propuesta ganadora en este grupo'
+        message: 'No hay libro ganador todavía'
       });
     }
 
     return res.status(200).json({
       success: true,
-      data: proposal,
-      message: 'Propuesta ganadora obtenida correctamente'
+      data: winner,
+      message: 'Libro ganador obtenido'
     });
 
   } catch (error) {
-    console.error('Error obteniendo propuesta ganadora:', error);
-    const statusCode = error.message.includes('miembros') ? 403 : 500;
-    return res.status(statusCode).json({
+    console.error('Error obteniendo ganador:', error);
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -246,13 +200,12 @@ const getWinningProposal = async (req, res) => {
 };
 
 module.exports = {
+  getProposals,
   createProposal,
-  getGroupProposals,
-  getProposalById,
   voteProposal,
   closeProposal,
   cancelProposal,
-  getWinningProposal
+  getWinner
 };
 //const prisma = require('../config/database');
 

@@ -7,7 +7,10 @@ class ExternalService {
   /**
    * Obtener perfil de usuario del user-service
    */
-  async getUserProfile(userId, token) {
+  async getUserProfiles(userIds, token) {
+    // ✅ Validación de seguridad
+    if (!userIds || userIds.length === 0) return [];
+
     try {
       const url = `${servicesConfig.USER_SERVICE_URL}/api/users/${userId}`;
       
@@ -76,6 +79,33 @@ class ExternalService {
     } catch (error) {
       console.error('❌ Error obteniendo perfiles de usuarios:', error.message);
       return [];
+    }
+  }
+
+  /**
+   * Obtener perfil de UN usuario (Singular)
+   * GET /users/:userId
+   */
+  async getUserProfile(userId, token) {
+    try {
+      // Ajusta la URL si tu user-service tiene prefijo /api/users
+      const url = `${servicesConfig.USER_SERVICE_URL}/api/users/${userId}`;
+      
+      console.log(`📍 Llamando a: ${url}`);
+      
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: token
+        },
+        timeout: 5000
+      });
+
+      // Manejar respuestas anidadas { success: true, data: {...} }
+      return response.data.data || response.data;
+    } catch (error) {
+      console.error(`❌ Error obteniendo perfil ${userId}:`, error.message);
+      // Retornar null para no romper la página si falla un perfil secundario
+      return null; 
     }
   }
 
@@ -161,6 +191,26 @@ class ExternalService {
       return null;
     }
   }
+
+  /**
+ * Obtener información de múltiples libros por IDs
+ */
+async getBooksByIds(bookIds, token) {
+  try {
+    const response = await axios.post(
+      `${this.LIBRARY_SERVICE_URL}/api/library/books/batch`,
+      { bookIds },
+      {
+        headers: token ? { Authorization: token } : {}
+      }
+    );
+    return response.data.data || [];
+  } catch (error) {
+    console.error('Error obteniendo libros:', error.message);
+    return [];
+  }
+}
+
 }
 
 module.exports = new ExternalService();

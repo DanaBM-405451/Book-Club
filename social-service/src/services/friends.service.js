@@ -53,7 +53,10 @@ class FriendsService {
             'FRIEND_REQUEST',
             'Nueva solicitud de amistad',
             `Tienes una nueva solicitud de amistad`,
-            { fromUserId: userId, friendshipId: friendship.id }
+            { 
+              fromUserId: userId, 
+              friendshipId: friendship.id 
+            }
           );
 
           return friendship;
@@ -216,7 +219,7 @@ class FriendsService {
         where: { id: friendshipId },
         data: {
           status: 'REJECTED',
-          // ❌ rejectedAt NO EXISTE en el schema
+          
         },
       });
     } catch (error) {

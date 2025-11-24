@@ -2,55 +2,48 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/auth.middleware');
-const {
-  createReadingGoal,
-  getGroupGoals,
-  getActiveGoal,
-  updateReadingGoal,
-  completeGoal,
-  deleteGoal
-} = require('../controllers/goals.controller');
+const goalsController = require('../controllers/goals.controller');
 
 /**
- * @route POST /groups/:groupId/goals
- * @desc Crear meta de lectura (solo admin)
+ * @route GET /goals
+ * @desc Obtener todas las metas
  * @access Private
  */
-router.post('/:groupId/goals', authMiddleware, createReadingGoal);
+router.get('/', authMiddleware, goalsController.getGoals);
 
 /**
- * @route GET /groups/:groupId/goals
- * @desc Obtener metas de lectura del grupo
- * @access Private (solo miembros)
- */
-router.get('/:groupId/goals', authMiddleware, getGroupGoals);
-
-/**
- * @route GET /groups/:groupId/goals/active
- * @desc Obtener meta activa del grupo
- * @access Private (solo miembros)
- */
-router.get('/:groupId/goals/active', authMiddleware, getActiveGoal);
-
-/**
- * @route PUT /groups/:groupId/goals/:goalId
- * @desc Editar meta de lectura (solo admin)
+ * @route POST /goals
+ * @desc Crear una nueva meta
  * @access Private
  */
-router.put('/:groupId/goals/:goalId', authMiddleware, updateReadingGoal);
+router.post('/', authMiddleware, goalsController.createGoal);
 
 /**
- * @route POST /groups/:groupId/goals/:goalId/complete
- * @desc Completar meta de lectura (solo admin)
+ * @route GET /goals/active
+ * @desc Obtener meta activa
  * @access Private
  */
-router.post('/:groupId/goals/:goalId/complete', authMiddleware, completeGoal);
+router.get('/active', authMiddleware, goalsController.getActiveGoal);
 
 /**
- * @route DELETE /groups/:groupId/goals/:goalId
- * @desc Eliminar meta de lectura (solo admin)
+ * @route PUT /goals/:goalId
+ * @desc Actualizar una meta
  * @access Private
  */
-router.delete('/:groupId/goals/:goalId', authMiddleware, deleteGoal);
+router.put('/:goalId', authMiddleware, goalsController.updateGoal);
+
+/**
+ * @route DELETE /goals/:goalId
+ * @desc Eliminar una meta
+ * @access Private
+ */
+router.delete('/:goalId', authMiddleware, goalsController.deleteGoal);
+
+/**
+ * @route POST /goals/:goalId/complete
+ * @desc Marcar meta como completada
+ * @access Private
+ */
+router.post('/:goalId/complete', authMiddleware, goalsController.completeGoal);
 
 module.exports = router;

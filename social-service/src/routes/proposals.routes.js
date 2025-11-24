@@ -2,63 +2,48 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/auth.middleware');
-const {
-  createProposal,
-  getGroupProposals,
-  getProposalById,
-  voteProposal,
-  closeProposal,
-  cancelProposal,
-  getWinningProposal
-} = require('../controllers/proposals.controller');
+const proposalsController = require('../controllers/proposals.controller');
 
 /**
- * @route POST /groups/:groupId/proposals
- * @desc Proponer un libro para el grupo
- * @access Private (solo miembros)
- */
-router.post('/:groupId/proposals', authMiddleware, createProposal);
-
-/**
- * @route GET /groups/:groupId/proposals
- * @desc Obtener propuestas de libros del grupo
- * @access Private (solo miembros)
- */
-router.get('/:groupId/proposals', authMiddleware, getGroupProposals);
-
-/**
- * @route GET /groups/:groupId/proposals/winner
- * @desc Obtener propuesta ganadora del grupo
- * @access Private (solo miembros)
- */
-router.get('/:groupId/proposals/winner', authMiddleware, getWinningProposal);
-
-/**
- * @route GET /groups/:groupId/proposals/:proposalId
- * @desc Obtener detalle de una propuesta
- * @access Private (solo miembros)
- */
-router.get('/:groupId/proposals/:proposalId', authMiddleware, getProposalById);
-
-/**
- * @route POST /groups/:groupId/proposals/:proposalId/vote
- * @desc Votar por una propuesta de libro
- * @access Private (solo miembros)
- */
-router.post('/:groupId/proposals/:proposalId/vote', authMiddleware, voteProposal);
-
-/**
- * @route POST /groups/:groupId/proposals/:proposalId/close
- * @desc Cerrar votación (solo admin)
+ * @route GET /proposals
+ * @desc Obtener todas las propuestas
  * @access Private
  */
-router.post('/:groupId/proposals/:proposalId/close', authMiddleware, closeProposal);
+router.get('/', authMiddleware, proposalsController.getProposals);
 
 /**
- * @route DELETE /groups/:groupId/proposals/:proposalId
- * @desc Cancelar propuesta (admin o proponente)
+ * @route POST /proposals
+ * @desc Crear una nueva propuesta
  * @access Private
  */
-router.delete('/:groupId/proposals/:proposalId', authMiddleware, cancelProposal);
+router.post('/', authMiddleware, proposalsController.createProposal);
+
+/**
+ * @route POST /proposals/:proposalId/vote
+ * @desc Votar por una propuesta
+ * @access Private
+ */
+router.post('/:proposalId/vote', authMiddleware, proposalsController.voteProposal);
+
+/**
+ * @route POST /proposals/:proposalId/close
+ * @desc Cerrar votación
+ * @access Private
+ */
+router.post('/:proposalId/close', authMiddleware, proposalsController.closeProposal);
+
+/**
+ * @route DELETE /proposals/:proposalId
+ * @desc Cancelar una propuesta
+ * @access Private
+ */
+router.delete('/:proposalId', authMiddleware, proposalsController.cancelProposal);
+
+/**
+ * @route GET /proposals/winner
+ * @desc Obtener libro ganador
+ * @access Private
+ */
+router.get('/winner', authMiddleware, proposalsController.getWinner);
 
 module.exports = router;

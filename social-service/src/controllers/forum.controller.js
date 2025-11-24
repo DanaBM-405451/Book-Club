@@ -3,55 +3,16 @@
 const forumService = require('../services/forum.service');
 
 /**
- * Crear publicación en el foro
- * POST /groups/:groupId/posts
- * Body: { content, bookId?, bookTitle?, bookAuthor?, bookCoverUrl?, uploadedFileUrl?, fileType? }
- */
-const createPost = async (req, res) => {
-  try {
-    const { groupId } = req.params;
-    const userId = req.user.id;
-    const token = req.headers.authorization;
-
-    if (!req.body.content || req.body.content.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'El contenido de la publicación es requerido'
-      });
-    }
-
-    const post = await forumService.createPost(parseInt(groupId), userId, req.body, token);
-
-    return res.status(201).json({
-      success: true,
-      data: post,
-      message: 'Publicación creada correctamente'
-    });
-
-  } catch (error) {
-    console.error('Error creando publicación:', error);
-    const statusCode = error.message.includes('miembro') ? 403 : 
-                       error.message.includes('permiso') ? 403 : 400;
-    return res.status(statusCode).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/**
  * Obtener publicaciones del grupo
- * GET /groups/:groupId/posts?page=1&limit=20
+ * GET /groups/:groupId/posts
  */
 const getGroupPosts = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const userId = req.user.id;
-    const token = req.headers.authorization;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
 
-    const result = await forumService.getGroupPosts(parseInt(groupId), userId, page, limit, token);
+    const result = await forumService.getGroupPosts(parseInt(groupId), page, limit);
 
     return res.status(200).json({
       success: true,
@@ -62,8 +23,7 @@ const getGroupPosts = async (req, res) => {
 
   } catch (error) {
     console.error('Error obteniendo publicaciones:', error);
-    const statusCode = error.message.includes('miembros') ? 403 : 500;
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -71,64 +31,70 @@ const getGroupPosts = async (req, res) => {
 };
 
 /**
- * Obtener detalle de un post
- * GET /groups/:groupId/posts/:postId
+ * Crear una publicación en el grupo
+ * POST /groups/:groupId/posts
+ * Body: { content: string, bookId?: number }
  */
-const getPostById = async (req, res) => {
+const createPost = async (req, res) => {
   try {
-    const { groupId, postId } = req.params;
+    const { groupId } = req.params;
     const userId = req.user.id;
+    const { content, bookId } = req.body;
     const token = req.headers.authorization;
 
-    const post = await forumService.getPostById(parseInt(postId), userId, token);
-
-    return res.status(200).json({
-      success: true,
-      data: post,
-      message: 'Post obtenido correctamente'
-    });
-
-  } catch (error) {
-    console.error('Error obteniendo post:', error);
-    const statusCode = error.message.includes('no encontrado') ? 404 : 
-                       error.message.includes('miembros') ? 403 : 500;
-    return res.status(statusCode).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/**
- * Crear comentario en publicación
- * POST /groups/:groupId/posts/:postId/comments
- * Body: { content, parentCommentId? }
- */
-const createComment = async (req, res) => {
-  try {
-    const { groupId, postId } = req.params;
-    const userId = req.user.id;
-    const token = req.headers.authorization;
-
-    if (!req.body.content || req.body.content.trim().length === 0) {
+    if (!content || content.trim().length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'El contenido del comentario es requerido'
+        message: 'El contenido es requerido'
       });
     }
 
-    const comment = await forumService.createComment(parseInt(postId), userId, req.body, token);
+    const post = await forumService.createPost(
+      parseInt(groupId),
+      userId,
+      { content, bookId },
+      token
+    );
 
     return res.status(201).json({
       success: true,
-      data: comment,
-      message: 'Comentario creado correctamente'
+      data: post,
+      message: 'Publicación creada exitosamente'
     });
 
   } catch (error) {
-    console.error('Error creando comentario:', error);
-    const statusCode = error.message.includes('no encontrado') ? 404 : 
-                       error.message.includes('miembros') ? 403 : 400;
+    console.error('Error creando publicación:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Eliminar una publicación
+ * DELETE /groups/:groupId/posts/:postId
+ */
+const deletePost = async (req, res) => {
+  try {
+    const { groupId, postId } = req.params;
+    const userId = req.user.id;
+
+    await forumService.deletePost(
+      parseInt(groupId),
+      parseInt(postId),
+      userId
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Publicación eliminada correctamente'
+    });
+
+  } catch (error) {
+    console.error('Error eliminando publicación:', error);
+    const statusCode = error.message.includes('no encontrado') ? 404 :
+                       error.message.includes('permiso') ? 403 : 500;
     return res.status(statusCode).json({
       success: false,
       message: error.message
@@ -143,23 +109,23 @@ const createComment = async (req, res) => {
 const getPostComments = async (req, res) => {
   try {
     const { groupId, postId } = req.params;
-    const userId = req.user.id;
     const token = req.headers.authorization;
 
-    const comments = await forumService.getPostComments(parseInt(postId), userId, token);
+    const comments = await forumService.getPostComments(
+      parseInt(groupId),
+      parseInt(postId),
+      token
+    );
 
     return res.status(200).json({
       success: true,
       data: comments,
-      count: comments.length,
       message: 'Comentarios obtenidos correctamente'
     });
 
   } catch (error) {
     console.error('Error obteniendo comentarios:', error);
-    const statusCode = error.message.includes('no encontrado') ? 404 : 
-                       error.message.includes('miembros') ? 403 : 500;
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -167,53 +133,41 @@ const getPostComments = async (req, res) => {
 };
 
 /**
- * Eliminar post
- * DELETE /groups/:groupId/posts/:postId
+ * Crear un comentario en una publicación
+ * POST /groups/:groupId/posts/:postId/comments
+ * Body: { content: string, parentId?: number }
  */
-const deletePost = async (req, res) => {
+const createComment = async (req, res) => {
   try {
     const { groupId, postId } = req.params;
     const userId = req.user.id;
+    const { content, parentId } = req.body;
+    const token = req.headers.authorization;
 
-    const result = await forumService.deletePost(parseInt(postId), userId);
+    if (!content || content.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'El contenido es requerido'
+      });
+    }
 
-    return res.status(200).json({
+    const comment = await forumService.createComment(
+      parseInt(groupId),
+      parseInt(postId),
+      userId,
+      { content, parentId },
+      token
+    );
+
+    return res.status(201).json({
       success: true,
-      message: result.message
+      data: comment,
+      message: 'Comentario creado exitosamente'
     });
 
   } catch (error) {
-    console.error('Error eliminando post:', error);
-    const statusCode = error.message.includes('no encontrado') ? 404 : 
-                       error.message.includes('permiso') ? 403 : 500;
-    return res.status(statusCode).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-/**
- * Eliminar comentario
- * DELETE /groups/:groupId/posts/:postId/comments/:commentId
- */
-const deleteComment = async (req, res) => {
-  try {
-    const { commentId } = req.params;
-    const userId = req.user.id;
-
-    const result = await forumService.deleteComment(parseInt(commentId), userId);
-
-    return res.status(200).json({
-      success: true,
-      message: result.message
-    });
-
-  } catch (error) {
-    console.error('Error eliminando comentario:', error);
-    const statusCode = error.message.includes('no encontrado') ? 404 : 
-                       error.message.includes('permiso') ? 403 : 500;
-    return res.status(statusCode).json({
+    console.error('Error creando comentario:', error);
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -221,15 +175,12 @@ const deleteComment = async (req, res) => {
 };
 
 module.exports = {
-  createPost,
   getGroupPosts,
-  getPostById,
-  createComment,
-  getPostComments,
+  createPost,
   deletePost,
-  deleteComment
+  getPostComments,
+  createComment
 };
-
 
 //const prisma = require('../config/database');
 

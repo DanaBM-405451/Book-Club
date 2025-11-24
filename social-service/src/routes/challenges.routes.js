@@ -2,87 +2,62 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/auth.middleware');
-const {
-  createChallenge,
-  getGroupChallenges,
-  getActiveChallenge,
-  getChallengeById,
-  joinChallenge,
-  updateProgress,
-  getChallengeProgress,
-  getChallengeRanking,
-  archiveChallenge,
-  reactivateChallenge
-} = require('../controllers/challenges.controller');
+const challengesController = require('../controllers/challenges.controller');
 
 /**
- * @route POST /groups/:groupId/challenges
- * @desc Crear reto de lectura
- * @access Private (solo miembros)
+ * @route GET /challenges
+ * @desc Obtener todos los retos
+ * @access Private
  */
-router.post('/:groupId/challenges', authMiddleware, createChallenge);
+router.get('/', authMiddleware, challengesController.getChallenges);
 
 /**
- * @route GET /groups/:groupId/challenges
- * @desc Listar retos del grupo
- * @access Private (solo miembros)
+ * @route POST /challenges
+ * @desc Crear un nuevo reto
+ * @access Private
  */
-router.get('/:groupId/challenges', authMiddleware, getGroupChallenges);
+router.post('/', authMiddleware, challengesController.createChallenge);
 
 /**
- * @route GET /groups/:groupId/challenges/active
- * @desc Obtener reto activo del grupo
- * @access Private (solo miembros)
+ * @route GET /challenges/active
+ * @desc Obtener reto activo
+ * @access Private
  */
-router.get('/:groupId/challenges/active', authMiddleware, getActiveChallenge);
+router.get('/active', authMiddleware, challengesController.getActiveChallenge);
 
 /**
- * @route GET /groups/:groupId/challenges/:challengeId
- * @desc Obtener detalle de un reto
- * @access Private (solo miembros)
- */
-router.get('/:groupId/challenges/:challengeId', authMiddleware, getChallengeById);
-
-/**
- * @route POST /groups/:groupId/challenges/:challengeId/join
+ * @route POST /challenges/:challengeId/join
  * @desc Unirse a un reto
- * @access Private (solo miembros)
+ * @access Private
  */
-router.post('/:groupId/challenges/:challengeId/join', authMiddleware, joinChallenge);
+router.post('/:challengeId/join', authMiddleware, challengesController.joinChallenge);
 
 /**
- * @route POST /groups/:groupId/challenges/:challengeId/progress
- * @desc Actualizar progreso en el reto
- * @access Private (solo participantes)
+ * @route POST /challenges/:challengeId/progress
+ * @desc Actualizar progreso
+ * @access Private
  */
-router.post('/:groupId/challenges/:challengeId/progress', authMiddleware, updateProgress);
+router.post('/:challengeId/progress', authMiddleware, challengesController.updateChallengeProgress);
 
 /**
- * @route GET /groups/:groupId/challenges/:challengeId/progress
- * @desc Obtener progreso general del reto
- * @access Private (solo miembros)
- */
-router.get('/:groupId/challenges/:challengeId/progress', authMiddleware, getChallengeProgress);
-
-/**
- * @route GET /groups/:groupId/challenges/:challengeId/ranking
+ * @route GET /challenges/:challengeId/ranking
  * @desc Obtener ranking del reto
- * @access Private (solo miembros)
- */
-router.get('/:groupId/challenges/:challengeId/ranking', authMiddleware, getChallengeRanking);
-
-/**
- * @route POST /groups/:groupId/challenges/:challengeId/archive
- * @desc Archivar reto (solo admin)
  * @access Private
  */
-router.post('/:groupId/challenges/:challengeId/archive', authMiddleware, archiveChallenge);
+router.get('/:challengeId/ranking', authMiddleware, challengesController.getChallengeRanking);
 
 /**
- * @route POST /groups/:groupId/challenges/:challengeId/reactivate
- * @desc Reactivar reto archivado (solo admin)
+ * @route POST /challenges/:challengeId/archive
+ * @desc Archivar un reto
  * @access Private
  */
-router.post('/:groupId/challenges/:challengeId/reactivate', authMiddleware, reactivateChallenge);
+router.post('/:challengeId/archive', authMiddleware, challengesController.archiveChallenge);
+
+/**
+ * @route POST /challenges/:challengeId/reactivate
+ * @desc Reactivar un reto
+ * @access Private
+ */
+router.post('/:challengeId/reactivate', authMiddleware, challengesController.reactivateChallenge);
 
 module.exports = router;
