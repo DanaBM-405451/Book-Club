@@ -2,13 +2,14 @@
 // src/routes/groups.routes.js
 const express = require('express');
 const router = express.Router();
-const { authMiddleware } = require('../middleware/auth.middleware');
+const { authMiddleware} = require('../middleware/auth.middleware');
 const groupsController = require('../controllers/groups.controller');
 const forumController = require('../controllers/forum.controller');
 const goalsController = require('../controllers/goals.controller');
 const proposalsController = require('../controllers/proposals.controller');
 const challengesController = require('../controllers/challenges.controller');
 
+router.get('/admin/stats', authMiddleware, groupsController.getAdminStats);
 // ========== GRUPOS ==========
 router.post('/', authMiddleware, groupsController.createGroup);
 router.get('/', authMiddleware, groupsController.getPublicGroups);

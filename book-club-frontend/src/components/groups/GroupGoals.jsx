@@ -236,99 +236,68 @@ const loadActiveGoal = async () => {
 function ActiveGoalCard({ goal, groupId, isAdmin, onComplete, onEdit, onDelete }) {
   
   const getFrequencyLabel = (frequency) => {
-    const labels = {
-      DAILY: 'Diaria',
-      WEEKLY: 'Semanal',
-      MONTHLY: 'Mensual',
-    };
-    return labels[frequency] || frequency;
+    const labels = { DAILY: 'Diaria', WEEKLY: 'Semanal', MONTHLY: 'Mensual' };
+    return labels[frequency] || frequency || 'Semanal';
   };
 
-  // Preferimos los datos guardados en la meta (snapshot) y usamos 'book' como fallback
-  const coverUrl = goal.bookCoverUrl || goal.book?.coverImageUrl;
+  // Datos seguros
+  const title = goal.bookTitle || goal.book?.title || "Meta de Lectura";
   const author = goal.bookAuthor || goal.book?.author;
-  const title = goal.bookTitle || goal.book?.title;
+  const cover = goal.bookCoverUrl || goal.book?.coverImageUrl;
+  
+  // Helper para fechas seguras
+  const formatDate = (dateStr) => {
+      if (!dateStr) return 'Pendiente';
+      const d = new Date(dateStr);
+      return isNaN(d.getTime()) ? 'Fecha inválida' : d.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' });
+  };
 
   return (
-    <div className="bg-white rounded-lg p-6 shadow-sm"> {/* Aumenté un poco el padding */}
+    <div className="bg-white rounded-lg p-6 shadow-sm border border-neutral-100">
       <div className="flex flex-col sm:flex-row gap-6">
         
-        {/* Portada del libro */}
+        {/* Portada */}
         <div className="flex-shrink-0 mx-auto sm:mx-0">
-          {coverUrl ? (
-            <img
-              src={coverUrl}
-              alt={title}
-              className="w-32 h-48 object-cover rounded-md shadow-md"
-            />
+          {cover ? (
+            <img src={cover} alt={title} className="w-32 h-48 object-cover rounded-md shadow-md" />
           ) : (
-            <div className="w-32 h-48 bg-neutral-100 rounded-md flex items-center justify-center border border-neutral-200">
+            <div className="w-32 h-48 bg-neutral-100 rounded-md flex items-center justify-center">
               <BookOpen className="w-12 h-12 text-neutral-300" />
             </div>
           )}
         </div>
 
-        {/* Info de la meta */}
+        {/* Info */}
         <div className="flex-1 min-w-0">
-          <h4 className="text-2xl font-heading font-bold text-neutral-900 mb-1 leading-tight">
-            {title}
-          </h4>
-          
-          {author && (
-            <p className="text-neutral-500 font-ui mb-4 text-sm">{author}</p>
-          )}
+          <h4 className="text-2xl font-heading font-bold text-neutral-900 mb-1">{title}</h4>
+          {author && <p className="text-neutral-500 font-ui mb-4 text-sm">{author}</p>}
 
           <div className="space-y-3 mb-6">
             <div className="flex items-center gap-2 text-neutral-700">
               <Target className="w-5 h-5 text-green-600" />
               <span className="font-ui font-medium">
-                Meta: {goal.targetPages} páginas <span className="text-neutral-400 mx-1">•</span> {getFrequencyLabel(goal.frequency)}
+                Meta: {goal.targetPages || '?'} págs • {getFrequencyLabel(goal.frequency)}
               </span>
             </div>
 
             <div className="flex items-center gap-2 text-neutral-600 text-sm">
               <Calendar className="w-4 h-4" />
               <span className="font-ui">
-                {new Date(goal.startDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })} — {' '}
-                {new Date(goal.endDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2 text-sm">
-              <Clock className="w-4 h-4 text-orange-500" />
-              <span className="font-ui font-medium text-orange-700">
-                {goal.daysRemaining} días restantes
+                {formatDate(goal.startDate)} — {formatDate(goal.endDate)}
               </span>
             </div>
           </div>
 
-          {goal.description && (
-            <div className="bg-neutral-50 p-3 rounded-lg border border-neutral-100 mb-4">
-               <p className="text-sm text-neutral-600 font-ui italic">"{goal.description}"</p>
-            </div>
-          )}
-
-          {/* Acciones Admin */}
+          {/* Botones Admin */}
           {isAdmin && (
-            <div className="flex gap-2 flex-wrap pt-2 border-t border-neutral-100 mt-2">
-              <button
-                onClick={() => onComplete(goal.id)}
-                className="btn-primary text-sm py-2 px-4 shadow-sm hover:shadow"
-              >
+            <div className="flex gap-2 pt-2 border-t border-neutral-100 mt-2">
+              <button onClick={() => onComplete(goal.id)} className="btn-primary text-sm py-2 px-4">
                 Marcar Completada
               </button>
-              <button
-                onClick={() => onEdit(goal)}
-                className="btn-outline text-sm flex items-center gap-2 py-2 px-4"
-              >
-                <Edit2 className="w-4 h-4" />
-                Editar
+              <button onClick={() => onEdit(goal)} className="btn-outline text-sm py-2 px-4 flex items-center gap-2">
+                <Edit2 className="w-4 h-4" /> Editar
               </button>
-              <button
-                onClick={() => onDelete(goal.id)}
-                className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors ml-auto"
-                title="Eliminar meta"
-              >
+              <button onClick={() => onDelete(goal.id)} className="p-2 text-red-500 hover:bg-red-50 rounded ml-auto">
                 <Trash2 className="w-5 h-5" />
               </button>
             </div>

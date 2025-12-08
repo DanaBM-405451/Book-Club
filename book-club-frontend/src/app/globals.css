@@ -69,3 +69,78 @@
   display: none; /* Ocultar anotaciones del PDF original */
 }
 }
+
+/* =========================================
+   ESTILOS DE IMPRESIÓN (REPORTE PROFESIONAL)
+   ========================================= */
+@media print {
+  /* 1. Ocultar elementos innecesarios */
+  nav,                /* Barra lateral / Navbar */
+  button,             /* Todos los botones de acción */
+  .no-print,          /* Clase auxiliar para ocultar cosas específicas */
+  [role="dialog"],    /* Modales si estuvieran abiertos */
+  .lucide-download,   /* Icono de descarga */
+  .lucide-mail,       /* Iconos decorativos que sobran */
+  form                /* Formularios de invitación */
+  {
+    display: none !important;
+  }
+
+  /* 2. Ajustar el Layout para papel A4 */
+  body {
+    background-color: white !important;
+    color: black !important;
+    font-size: 12pt;
+    margin: 0;
+    padding: 0;
+  }
+
+  .ml-20 {
+    margin-left: 0 !important; /* Quitar margen del sidebar */
+    padding: 20px !important;
+    min-height: auto !important;
+  }
+
+  .max-w-6xl {
+    max-width: 100% !important;
+  }
+
+  /* 3. Estilizar las Tarjetas para que se vean bien en papel */
+  .grid {
+    display: block !important; /* Romper el grid para que fluyan */
+  }
+
+  .card-vintage, .bg-white {
+    border: 1px solid #ddd !important;
+    box-shadow: none !important;
+    margin-bottom: 20px !important;
+    page-break-inside: avoid; /* Evitar que una tarjeta se corte entre páginas */
+  }
+
+  /* 4. Encabezado del Reporte */
+  h1 {
+    font-size: 24pt !important;
+    text-align: center;
+    margin-bottom: 10px;
+    color: #333 !important;
+  }
+
+  p.text-neutral-500 {
+    text-align: center;
+    margin-bottom: 30px;
+  }
+
+  /* 5. Footer del Reporte (Agregado con CSS) */
+  body::after {
+    content: "Reporte generado por Book Club - " attr(data-date);
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 10pt;
+    color: #888;
+    padding: 10px;
+    border-top: 1px solid #eee;
+  }
+}

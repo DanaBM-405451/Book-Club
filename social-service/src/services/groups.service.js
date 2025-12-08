@@ -120,6 +120,7 @@ class GroupsService {
               posts: true,
               goals: true,
               bookProposals: true,
+              members: true, // Aseguramos el conteo
             },
           },
         },
@@ -129,18 +130,25 @@ class GroupsService {
         throw new Error('Grupo no encontrado');
       }
 
-      // Verificar si el grupo es privado y el usuario no es miembro
-      if (!group.isPublic) {
+      // ❌ BLOQUE ELIMINADO: Permitimos ver la info básica aunque sea privado
+      /* if (!group.isPublic) {
         const isMember = group.members.some(m => m.userId === userId);
         if (!isMember) {
           throw new Error('No tienes acceso a este grupo privado');
         }
       }
+      */
+
+      // --- Enriquecimiento de datos (Tu lógica original) ---
 
       // Obtener perfiles de los miembros
       const memberIds = group.members.map(m => m.userId);
-      const profiles = await externalService.getUserProfiles(memberIds, token);
-      const profileMap = new Map(profiles.map(p => [p.userId, p]));
+      let profileMap = new Map();
+      
+      try {
+          const profiles = await externalService.getUserProfiles(memberIds, token);
+          profileMap = new Map(profiles.map(p => [p.userId, p]));
+      } catch (e) { console.log("No se pudieron cargar perfiles externos"); }
 
       // Mapear miembros con sus perfiles
       const membersWithProfiles = group.members.map(member => ({
@@ -149,7 +157,10 @@ class GroupsService {
       }));
 
       // Obtener perfil del creador
-      const creator = await externalService.getUserProfile(group.createdBy, token);
+      let creator = null;
+      try {
+        creator = await externalService.getUserProfile(group.createdBy, token);
+      } catch (e) {}
 
       // Verificar si el usuario actual es miembro
       const userMembership = group.members.find(m => m.userId === userId);
@@ -163,14 +174,14 @@ class GroupsService {
         goalsCount: group._count.goals,
         proposalsCount: group._count.bookProposals,
         isFull: group._count.members >= group.maxMembers,
-        userMembership: userMembership || null,
+        userMembership: userMembership || null, // 👈 Vital para el frontend
       };
+
     } catch (error) {
       console.error('Error obteniendo grupo:', error);
       throw error;
     }
   }
-
   /**
    * Unirse a un grupo
    */
@@ -485,6 +496,18 @@ async removeMember(groupId, adminId, targetUserId) {
     throw error;
   }
 }
+
+async getGlobalStats() {
+    const totalGroups = await prisma.group.count();
+
+    const latestGroups = await prisma.group.findMany({
+      take: 5,
+      orderBy: { createdAt: 'desc' },
+      select: { name: true, createdAt: true }
+    });
+
+    return { totalGroups, latestGroups };
+  }
 
 }
 

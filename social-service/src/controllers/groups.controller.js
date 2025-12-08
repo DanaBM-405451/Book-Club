@@ -398,6 +398,22 @@ const removeMember = async (req, res) => {
   }
 };
 
+const getAdminStats = async (req, res) => {
+  try {
+    // ✅ Llamamos al servicio, NO a prisma
+    const stats = await groupsService.getGlobalStats(); 
+
+    return res.status(200).json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error en stats' });
+  }
+};
+
+
 module.exports = {
   createGroup,
   getPublicGroups,
@@ -411,7 +427,8 @@ module.exports = {
   getGroupMembers,
   updateMemberRole,
   updateMemberPermissions,
-  removeMember
+  removeMember,
+  getAdminStats
 };
 //const prisma = require('../config/database');
 

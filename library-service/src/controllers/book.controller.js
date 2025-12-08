@@ -199,6 +199,29 @@ class BookController {
       next(error);
     }
   }
+
+  /**
+   * Estadísticas Globales para el Super Admin
+   * GET /api/books/admin/stats
+   */
+  async getAdminStats(req, res, next) {
+    try {
+      // Opcional: Verificar si es ADMIN aquí o en el middleware
+      // if (req.user.role !== 'ADMIN') return res.status(403)...
+
+      // Llamamos al método del servicio (que te pasé en la respuesta anterior)
+      // Asegúrate de que tu book.service.js tenga el método getGlobalLibraryStats()
+      const stats = await bookService.getGlobalLibraryStats();
+
+      res.json({
+        success: true,
+        data: stats
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+  
 }
 
 module.exports = new BookController();

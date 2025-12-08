@@ -1,0 +1,161 @@
+// =====================================================
+// CHAT_DB - chat-service/prisma/schema.prisma
+// Base de datos para mensajería en tiempo real
+// =====================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// =====================================================
+// CONVERSATIONS (Tabla explícita)
+// =====================================================
+
+model Conversation {
+  id                Int       @id @default(autoincrement())
+  
+  // Participantes (siempre 2 en chat privado)
+  participant1Id    String    @map("participant1_id") @db.VarChar(36)
+  participant2Id    String    @map("participant2_id") @db.VarChar(36)
+  
+  // Metadata de la conversación
+  lastMessageAt     DateTime? @map("last_message_at")
+  lastMessagePreview String?  @map("last_message_preview") @db.VarChar(500)
+  
+  // Control
+  isActive          Boolean   @default(true) @map("is_active")
+  
+  // Timestamps
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  
+  // Relaciones
+  messages          Message[]
+  readStatus        ConversationReadStatus[]
+  typingIndicators  TypingIndicator[]
+  
+  // Índices compuestos para buscar conversaciones entre 2 usuarios
+  @@unique([participant1Id, participant2Id], name: "unique_participants")
+  @@index([participant1Id])
+  @@index([participant2Id])
+  @@index([lastMessageAt])
+  @@index([isActive])
+  @@map("conversations")
+}
+
+// =====================================================
+// MESSAGES (Mensajes individuales)
+// =====================================================
+
+model Message {
+  id              Int       @id @default(autoincrement())
+  
+  conversationId  Int       @map("conversation_id")
+  senderId        String    @map("sender_id") @db.VarChar(36)
+  receiverId      String    @map("receiver_id") @db.VarChar(36)
+  
+  // Contenido del mensaje
+  content         String    @db.Text
+  messageType     MessageType @default(TEXT) @map("message_type")
+  
+  // Threading - Responder mensajes específicos
+  replyToId       Int?      @map("reply_to_id") // ID del mensaje al que responde
+  
+  // Estado de lectura
+  isRead          Boolean   @default(false) @map("is_read")
+  readAt          DateTime? @map("read_at")
+  
+  // Control
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+  deletedAt       DateTime? @map("deleted_at")
+  
+  // Timestamps
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  
+  // Relaciones
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  replyTo         Message?     @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies         Message[]    @relation("MessageReplies")
+  
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([createdAt])
+  @@index([isRead])
+  @@index([replyToId])
+  @@map("messages")
+}
+
+// =====================================================
+// CONVERSATION READ STATUS (Visto por última vez)
+// =====================================================
+
+model ConversationReadStatus {
+  id              Int       @id @default(autoincrement())
+  
+  conversationId  Int       @map("conversation_id")
+  userId          String    @map("user_id") @db.VarChar(36)
+  
+  // Último mensaje leído
+  lastReadMessageId Int?    @map("last_read_message_id")
+  
+  // Timestamp de última lectura
+  lastSeenAt      DateTime  @default(now()) @map("last_seen_at")
+  
+  // Contador de mensajes no leídos
+  unreadCount     Int       @default(0) @map("unread_count")
+  
+  // Timestamps
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  
+  // Relaciones
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@index([conversationId])
+  @@map("conversation_read_status")
+}
+
+// =====================================================
+// TYPING INDICATORS (Indicador "escribiendo...")
+// =====================================================
+
+model TypingIndicator {
+  id              Int       @id @default(autoincrement())
+  
+  conversationId  Int       @map("conversation_id")
+  userId          String    @map("user_id") @db.VarChar(36)
+  
+  // Estado
+  isTyping        Boolean   @default(false) @map("is_typing")
+  
+  // Timestamp (se actualiza cada vez que el usuario escribe)
+  lastTypingAt    DateTime  @default(now()) @map("last_typing_at")
+  
+  // Relaciones
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  
+  @@unique([conversationId, userId])
+  @@index([conversationId])
+  @@index([userId])
+  @@map("typing_indicators")
+}
+
+// =====================================================
+// ENUMS
+// =====================================================
+
+enum MessageType {
+  TEXT            // Mensaje de texto normal
+  IMAGE           // Imagen (futuro)
+  FILE            // Archivo adjunto (futuro)
+  SYSTEM          // Mensaje del sistema (ej: "Usuario se unió")
+}

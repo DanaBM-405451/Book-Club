@@ -1,4 +1,4 @@
-//src/app/friends/page.jsx
+// src/app/friends/page.jsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import Navbar from '@/components/layout/Navbar';
 import FriendCard from '@/components/social/FriendCard';
-import { Users, Search, UserPlus, Loader2, MessageSquare } from 'lucide-react';
+import InviteModal from '@/components/common/InviteModal'; // ✅ Importar Modal
+import { Users, Search, UserPlus, Loader2, MessageSquare, Mail } from 'lucide-react';
 import api from '@/lib/api';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -16,6 +17,7 @@ export default function FriendsPage() {
   const [friends, setFriends] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showInviteModal, setShowInviteModal] = useState(false); // ✅ Estado del modal
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -29,7 +31,6 @@ export default function FriendsPage() {
     try {
       setLoading(true);
       const response = await api.get('/api/social/friends');
-      // Aseguramos que sea un array
       setFriends(response.data.data || []);
     } catch (error) {
       console.error('Error cargando amigos:', error);
@@ -43,14 +44,10 @@ export default function FriendsPage() {
     setFriends((prev) => prev.filter((f) => f.friendshipId !== friendshipId));
   };
 
-  // Filtrado local para búsqueda rápida
   const filteredFriends = friends.filter((f) => {
     const user = f.profile;
     if (!user) return false;
-    
     const search = searchTerm.toLowerCase();
-    
-    // ✅ CORRECCIÓN: Usamos (campo || '') para evitar errores si es null
     const username = user.username || ''; 
     const nombre = user.nombre || '';
     const apellido = user.apellido || '';
@@ -88,6 +85,15 @@ export default function FriendsPage() {
             </div>
 
             <div className="flex gap-3">
+              {/* ✅ BOTÓN INVITAR A LA APP */}
+              <button 
+                onClick={() => setShowInviteModal(true)}
+                className="btn-primary flex items-center gap-2 shadow-md"
+              >
+                <Mail className="w-4 h-4" />
+                Invitar a la App
+              </button>
+
               <button 
                 onClick={() => router.push('/friends/search')}
                 className="btn-outline flex items-center gap-2"
@@ -95,17 +101,10 @@ export default function FriendsPage() {
                 <UserPlus className="w-4 h-4" />
                 Buscar nuevos
               </button>
-              <button 
-                onClick={() => router.push('/notifications')} // Asumiendo que ahí están las solicitudes
-                className="btn-secondary flex items-center gap-2 relative"
-              >
-                Solicitudes
-                {/* Aquí podrías poner un badge si tuvieras el contador */}
-              </button>
             </div>
           </div>
 
-          {/* Barra de Búsqueda Local */}
+          {/* Barra de Búsqueda */}
           <div className="bg-white p-4 rounded-xl shadow-sm border border-neutral-200 mb-6 flex items-center gap-3">
             <Search className="w-5 h-5 text-neutral-400" />
             <input 
@@ -117,7 +116,7 @@ export default function FriendsPage() {
             />
           </div>
 
-          {/* Lista de Amigos */}
+          {/* Lista */}
           {loading ? (
             <div className="flex justify-center py-20">
               <Loader2 className="w-10 h-10 animate-spin text-primary-500" />
@@ -157,6 +156,14 @@ export default function FriendsPage() {
           )}
         </div>
       </div>
+
+      {/* ✅ MODAL DE INVITACIÓN */}
+      <InviteModal 
+        isOpen={showInviteModal} 
+        onClose={() => setShowInviteModal(false)} 
+        type="app"
+        title="Invitar a Book Club"
+      />
     </>
   );
 }

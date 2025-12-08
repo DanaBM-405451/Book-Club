@@ -1,0 +1,110 @@
+// =====================================================
+// EMAIL_SERVICE - prisma/schema.prisma
+// Base de datos para gestión de emails
+// =====================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// =====================================================
+// PASSWORD RESET TOKENS
+// =====================================================
+
+model PasswordResetToken {
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  token           String    @unique @db.VarChar(500)
+  
+  // Expiración
+  expiresAt       DateTime  @map("expires_at")
+  
+  // Control de uso
+  isUsed          Boolean   @default(false) @map("is_used")
+  usedAt          DateTime? @map("used_at")
+  
+  // Timestamps
+  createdAt       DateTime  @default(now()) @map("created_at")
+  
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+// =====================================================
+// NEWSLETTER SUBSCRIBERS
+// =====================================================
+
+model NewsletterSubscriber {
+  id              Int       @id @default(autoincrement())
+  email           String    @unique @db.VarChar(255)
+  
+  // Estado
+  isActive        Boolean   @default(true) @map("is_active")
+  
+  // Timestamps
+  subscribedAt    DateTime  @default(now()) @map("subscribed_at")
+  unsubscribedAt  DateTime? @map("unsubscribed_at")
+  
+  @@index([email])
+  @@index([isActive])
+  @@map("newsletter_subscribers")
+}
+
+// =====================================================
+// EMAIL LOG (Opcional - para auditoría)
+// =====================================================
+
+model EmailLog {
+  id              String    @id @default(uuid())
+  
+  // Destinatario
+  recipientEmail  String    @map("recipient_email") @db.VarChar(255)
+  
+  // Tipo de email
+  emailType       EmailType @map("email_type")
+  
+  // Metadata
+  subject         String    @db.VarChar(500)
+  template        String?   @db.VarChar(100)
+  
+  // Estado
+  status          EmailStatus @default(PENDING)
+  errorMessage    String?   @map("error_message") @db.Text
+  
+  // Timestamps
+  sentAt          DateTime? @map("sent_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  
+  @@index([recipientEmail])
+  @@index([emailType])
+  @@index([status])
+  @@index([createdAt])
+  @@map("email_logs")
+}
+
+// =====================================================
+// ENUMS
+// =====================================================
+
+enum EmailType {
+  PASSWORD_RESET
+  NEWSLETTER
+  WELCOME
+  NOTIFICATION
+  INVITATION
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+  BOUNCED
+}

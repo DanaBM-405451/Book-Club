@@ -1,0 +1,37 @@
+{
+  "name": "chat-service",
+  "version": "1.0.0",
+  "description": "chat features microservice for Book Club application",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "prisma:push": "prisma db push"
+  },
+  "keywords": [
+    "chat",
+    "microservice",
+    "book-club"
+  ],
+  "author": "Dana",
+  "license": "MIT",
+  "dependencies": {
+    "@prisma/client": "5.22.0",
+    "axios": "^1.7.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-validator": "^7.1.0",
+    "joi": "^17.13.1",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0",
+    "prisma": "5.22.0"
+  }
+}

@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  # ... (servicios existentes)
+
+  # ========== EMAIL SERVICE ==========
+  email-service:
+    build:
+      context: ./email-service
+      dockerfile: Dockerfile
+    container_name: email-service
+    ports:
+      - "5006:5006"
+    environment:
+      - NODE_ENV=development
+      - PORT=5006
+      - DATABASE_URL=mysql://root:password@mysql:3306/email_db
+      - SHADOW_DATABASE_URL=mysql://root:password@mysql:3306/email_db_shadow
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_SECURE=${SMTP_SECURE}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - EMAIL_FROM=${EMAIL_FROM}
+      - FRONTEND_URL=http://localhost:3000
+      - RESET_TOKEN_EXPIRATION=15
+    depends_on:
+      - mysql
+    networks:
+      - bookclub-network
+
+  # ========== AUTH SERVICE (actualizar) ==========
+  auth-service:
+    # ... (configuración existente)
+    environment:
+      # ... (variables existentes)
+      - EMAIL_SERVICE_URL=http://email-service:5006  # ✅ AGREGAR ESTA LÍNEA
+
+networks:
+  bookclub-network:
+    driver: bridge

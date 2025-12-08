@@ -32,6 +32,7 @@ const authMiddleware = async (req, res, next) => {
       
       // ✅ Extraer user de la respuesta
       req.user = response.data.data.user;
+      req.user.userId = req.user.id;
       
       // 🔍 DEBUG (opcional, puedes comentarlo después)
       console.log('✅ User authenticated:', req.user);
@@ -60,7 +61,32 @@ const authMiddleware = async (req, res, next) => {
   }
 };
 
-module.exports = { authMiddleware };
+/**
+ * Middleware para requerir rol de ADMIN
+ * (ESTE ES EL QUE FALTABA)
+ */
+const requireAdmin = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Usuario no autenticado',
+    });
+  }
+
+  if (req.user.role !== 'ADMIN') {
+    return res.status(403).json({
+      success: false,
+      message: 'Acceso denegado. Se requieren permisos de administrador.',
+    });
+  }
+
+  next();
+};
+
+module.exports = { 
+  authMiddleware, 
+  requireAdmin
+};
 
 
 //const jwt = require('jsonwebtoken');

@@ -1,0 +1,30 @@
+# chat-service/Dockerfile
+
+# 1. Imagen base ligera
+FROM node:18-alpine
+
+# 2. Instalar dependencias del sistema necesarias para Prisma
+RUN apk add --no-cache openssl
+
+# 3. Directorio de trabajo
+WORKDIR /app
+
+# 4. Copiar archivos de dependencias
+COPY package*.json ./
+COPY prisma ./prisma/
+
+# 5. Instalar dependencias de Node
+RUN npm install
+
+# 6. Generar el cliente de Prisma (Vital para que funcione el código)
+RUN npx prisma generate
+
+# 7. Copiar el resto del código
+COPY . .
+
+# 8. Exponer el puerto del servicio
+EXPOSE 3020
+
+# 9. Comando de inicio
+# Nota: En producción idealmente usarías "npm start"
+CMD ["npm", "run", "dev"]

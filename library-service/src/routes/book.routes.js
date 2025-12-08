@@ -3,15 +3,32 @@
 const express = require('express');
 const router = express.Router();
 const bookController = require('../controllers/book.controller');
-const { authenticate } = require('../middleware/auth.middleware');
 const { upload } = require('../utils/cloudinary.utils');
+
+// ✅ IMPORTACIÓN UNIFICADA (Solo una vez)
+const { authenticate, requireAdmin } = require('../middleware/auth.middleware');
 
 // Todas las rutas requieren autenticación
 router.use(authenticate);
 
-// CRUD Libros
+// =====================================================
+// 1. RUTAS ESPECÍFICAS (Siempre van PRIMERO)
+// =====================================================
 
-// ✅ 1. CREATE: Mantén solo esta definición 
+// 📊 Stats del Admin (Requiere permisos extra)
+router.get(
+  '/books/admin/stats', 
+  requireAdmin, 
+  bookController.getAdminStats
+);
+
+// 📊 Stats del Usuario
+router.get('/books/stats', bookController.getLibraryStats);
+
+// 📚 Listar libros
+router.get('/books', bookController.getUserBooks);
+
+// ➕ Crear libro
 router.post(
   '/books',
   upload.fields([
@@ -22,20 +39,25 @@ router.post(
   bookController.createBook
 );
 
-router.get('/books', bookController.getUserBooks);
-router.get('/books/stats', bookController.getLibraryStats);
+// =====================================================
+// 2. RUTAS DINÁMICAS CON :id (Siempre van AL FINAL)
+// =====================================================
+
+// 📖 Obtener un libro
+// (IMPORTANTE: Esta ruta debe ir después de /admin/stats y /stats)
 router.get('/books/:id', bookController.getUserBook);
 
-// ✅ 2. UPDATE: Agregamos el middleware upload para recibir la portada ('cover')
+// ✏️ Editar libro
 router.put(
   '/books/:id', 
   upload.fields([{ name: 'cover', maxCount: 1 }]), 
   bookController.updateBook
 );
 
+// 🗑️ Borrar libro
 router.delete('/books/:id', bookController.deleteBook);
 
-// Acciones sobre libros
+// ⚡ Acciones sobre un libro específico
 router.put('/books/:id/rating', bookController.rateBook);
 router.put('/books/:id/progress', bookController.updateProgress);
 router.put('/books/:id/shelf', bookController.changeShelf);

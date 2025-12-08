@@ -1,5 +1,4 @@
 // library-service/src/services/book.service.js
-// library-service/src/services/book.service.js
 
 const prisma = require('../config/database');
 const { uploadBookCover, uploadBookFile } = require('../utils/cloudinary.utils');
@@ -303,6 +302,59 @@ class BookService {
       }
     };
   }
+
+  async getAdminStats(req, res, next) {
+    try {
+      // Verificar rol (asumiendo que req.user.role viene del middleware)
+      // Si tu middleware de librería no chequea roles, puedes saltar esto o implementarlo
+      
+      const totalBooks = await prisma.book.count({ where: { isDeleted: false } });
+      const totalReads = await prisma.userBook.count({ where: { status: 'COMPLETADO' } });
+      
+      // Libros más populares (más veces agregados)
+      const popularBooks = await prisma.userBook.groupBy({
+        by: ['bookId'],
+        _count: { bookId: true },
+        orderBy: { _count: { bookId: 'desc' } },
+        take: 5
+      });
+
+      res.json({
+        success: true,
+        data: {
+          totalBooks,
+          totalReads,
+          popularBooksCount: popularBooks.length
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Obtener estadísticas globales de biblioteca (Para Admin)
+   */
+  async getGlobalLibraryStats() {
+    const totalBooks = await prisma.book.count({ where: { isDeleted: false } });
+    const totalReads = await prisma.userBook.count({ where: { status: 'COMPLETADO' } });
+    
+    // ✅ NUEVO: Lista de últimos 10 libros subidos
+    const latestBooks = await prisma.book.findMany({
+      take: 10,
+      where: { isDeleted: false },
+      orderBy: { createdAt: 'desc' },
+      select: { 
+        titulo: true, 
+        autor: true, 
+        createdAt: true,
+        uploadedByUserId: true 
+      }
+    });
+
+    return { totalBooks, totalReads, latestBooks };
+  }
+
 }
 
 module.exports = new BookService();

@@ -112,7 +112,7 @@ services:
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
-      - "3310:3306"  #Puerto externo 3309, interno 3306
+      - "3310:3306"  #Puerto externo 3310, interno 3306
     volumes:
       - gamification_db_data:/var/lib/mysql
     networks:
@@ -164,7 +164,63 @@ services:
           memory: 512M
         reservations:
           cpus: '0.25'
-          memory: 256M      
+          memory: 256M  
+  #Chat database
+  chat-db:
+    image: mysql:8.0
+    container_name: chat-db
+    restart: always
+    environment:
+      MYSQL_DATABASE: chat_db
+      MYSQL_USER: bookclub_admin
+      MYSQL_PASSWORD: Dead0Alive97 
+      MYSQL_ROOT_PASSWORD: root_password
+    # LÍMITES DE RECURSOS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M  
+    ports:
+      - "3312:3306" # Mapeado al 3312 en tu PC para no chocar con las otras DBs
+    volumes:
+      - chat_db_data:/var/lib/mysql
+    networks:
+      - book-club-network    
+
+  # Email Database
+  email-db:
+    image: mysql:8.0
+    container_name: book-club-email-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: email_db
+      MYSQL_USER: bookclub_admin
+      MYSQL_PASSWORD: Dead0Alive97
+      MYSQL_ROOT_PASSWORD: root_password
+    ports:
+      - "3313:3306" # Mapeado al 3313 en tu PC
+    volumes:
+      - email_db_data:/var/lib/mysql
+    networks:
+      - book-club-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   # =====================================================
   # MICROSERVICIOS
@@ -223,6 +279,9 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - CORS_ORIGIN=${CORS_ORIGIN}
       - AUTH_SERVICE_URL=http://auth-service:3001
+      - EMAIL_SERVICE_URL=http://email-service:3021
+      - LIBRARY_SERVICE_URL=http://library-service:3003
+      - GAMIFICATION_SERVICE_URL=http://gamification-service:3004
       - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
       - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
       - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
@@ -231,6 +290,7 @@ services:
         condition: service_healthy
       auth-service:
         condition: service_started
+      
     networks:
       - book-club-network
     volumes:
@@ -262,6 +322,8 @@ services:
       - DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@library-db:3306/library_db  
       - JWT_SECRET=${JWT_SECRET}
       - AUTH_SERVICE_URL=http://auth-service:3001
+      - USER_SERVICE_URL=http://user-service:3002
+      - GAMIFICATION_SERVICE_URL=http://gamification-service:3004
       - CORS_ORIGIN=${CORS_ORIGIN}
       - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
       - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
@@ -288,6 +350,45 @@ services:
           cpus: '0.25'
           memory: 128M
 
+  gamification-service:
+    build:
+      context: ./gamification-service
+      dockerfile: Dockerfile
+    container_name: book-club-gamification-service
+    restart: unless-stopped
+    ports:
+      - "3004:3004"
+    environment:
+      - NODE_ENV=development
+      - PORT=3004
+      # Conexión interna a la base de datos de gamificación
+      - DATABASE_URL=mysql://bookclub_admin:Dead0Alive97@gamification-db:3306/gamification_db
+      - JWT_SECRET=${JWT_SECRET}
+      - CORS_ORIGIN=${CORS_ORIGIN}
+      # Conexión con otros servicios
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - USER_SERVICE_URL=http://user-service:3002
+      - LIBRARY_SERVICE_URL=http://library-service:3003
+      - SOCIAL_SERVICE_URL=http://social-service:3005
+    depends_on:
+      gamification-db:
+        condition: service_healthy
+    networks:
+      - book-club-network
+    volumes:
+      - ./gamification-service:/app
+      - /app/node_modules
+    command: npm run dev
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    
+
   # Social Service
   social-service:
     build:
@@ -307,6 +408,7 @@ services:
       - USER_SERVICE_URL=http://user-service:3002
       - LIBRARY_SERVICE_URL=http://library-service:3003
       - GAMIFICATION_SERVICE_URL=http://gamification-service:3004
+      - SOCIAL_SERVICE_URL=http://social-service:3005
     depends_on:
       social-db:
         condition: service_healthy
@@ -323,6 +425,86 @@ services:
       - /app/node_modules
     command: npm run dev
     # LÍMITES DE RECURSOS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+  #Chat-service 
+  chat-service:
+    build: ./chat-service
+    container_name: chat-service
+    restart: always
+    ports:
+      - "3020:3020" # Puerto HTTP y Socket.io
+    environment:
+      - PORT=3020
+      - NODE_ENV=development
+      # Conexión a SU propia base de datos (chat-db)
+      - DATABASE_URL=mysql://chat_user:chat_password@chat-db:3306/chat_db
+      
+      # Conexión con OTROS servicios (usando nombres de contenedor)
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - USER_SERVICE_URL=http://user-service:3002
+      - SOCIAL_SERVICE_URL=http://social-service:3005
+      - GAMIFICATION_SERVICE_URL=http://gamification-service:3004
+       
+      
+      # Configuración JWT (Debe ser el mismo secreto que auth-service)
+      - JWT_SECRET=${JWT_SECRET} 
+      
+      # Configuración CORS (Permitir frontend)
+      - CORS_ORIGIN=http://localhost:3000
+    depends_on:
+      - chat-db
+      - auth-service
+      - social-service
+    networks:
+      - book-club-network
+       # LÍMITES DE RECURSOS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+  # Email Service
+  email-service:
+    build:
+      context: ./email-service
+      dockerfile: Dockerfile
+    container_name: book-club-email-service
+    restart: unless-stopped
+    ports:
+      - "3021:3021"
+    environment:
+      - NODE_ENV=development
+      - PORT=3021
+      # Conexión interna de Docker a la base de datos
+      - DATABASE_URL=mysql://bookclub_admin:Dead0Alive97@email-db:3306/email_db
+      
+      # Configuración SMTP (Copiada de tu .env)
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_SECURE=${SMTP_SECURE}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - EMAIL_FROM=${EMAIL_FROM}
+      - FRONTEND_URL=http://localhost:3000
+    depends_on:
+      email-db:
+        condition: service_healthy
+    networks:
+      - book-club-network
+    volumes:
+      - ./email-service:/app
+      - /app/node_modules
+    command: npm run dev
     deploy:
       resources:
         limits:
@@ -351,11 +533,16 @@ services:
       - AUTH_SERVICE_URL=http://auth-service:3001
       - USER_SERVICE_URL=http://user-service:3002
       - LIBRARY_SERVICE_URL=http://library-service:3003
+      
       - CORS_ORIGIN=${CORS_ORIGIN}
     depends_on:
       - auth-service
       - user-service
       - library-service
+      - gamification-service
+      - social-service
+      - chat-service
+      - email-service
     networks:
       - book-club-network
     volumes:
@@ -373,7 +560,7 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: ./book-club-frontend
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
@@ -409,6 +596,12 @@ volumes:
     driver: local
   social_db_data:        
     driver: local
+  chat_db_data:
+     driver: local   
+  email_db_data:
+     driver: local   
+
+
 
 # =====================================================
 # REDES

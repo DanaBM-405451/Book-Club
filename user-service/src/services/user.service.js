@@ -356,7 +356,35 @@ class UserService {
     
     return { message: 'Cuenta eliminada exitosamente' };
   }
+
+  /**
+   * Obtener estadísticas globales de usuarios (Para Admin)
+   */
+ async getGlobalStats() {
+    const totalUsers = await prisma.profile.count();
+    
+    // Usuarios "activos" (estimación simple: usuarios con perfil)
+    const activeUsers = totalUsers;
+
+    // Nuevos usuarios (últimos 30 días)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const newUsers = await prisma.profile.count({
+      where: { createdAt: { gte: thirtyDaysAgo } }
+    });
+
+    // ✅ NUEVO: Lista de últimos 5 usuarios para el reporte de actividad
+    const latestUsers = await prisma.profile.findMany({
+      take: 5,
+      orderBy: { createdAt: 'desc' },
+      select: { username: true, createdAt: true }
+    });
+
+    return { totalUsers, activeUsers, newUsers, latestUsers };
+  }
 }
+
 
 module.exports = new UserService();
 

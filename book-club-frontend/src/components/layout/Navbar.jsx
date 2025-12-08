@@ -6,10 +6,11 @@ import {
   BookOpen, 
   Bell, 
   Search, 
-  Users, // Usado para Grupos
+  Users, 
   User, 
   LogOut,
-  HeartHandshake // Nuevo icono para Amigos
+  HeartHandshake,
+  Shield // ✅ Importamos el icono de escudo para el admin
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
@@ -19,7 +20,10 @@ import toast from 'react-hot-toast';
 export default function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
-  const { logout } = useAuthStore();
+  
+  // ✅ Obtenemos 'user' para verificar el rol
+  const { user, logout } = useAuthStore(); 
+  
   const [notificationCount, setNotificationCount] = useState(0);
 
   useEffect(() => {
@@ -29,7 +33,6 @@ export default function Navbar() {
   const loadNotificationCount = async () => {
     try {
       const response = await api.get('/api/social/friends/requests');
-      // Asumiendo que response.data es el array o tiene un campo count
       const count = Array.isArray(response.data) ? response.data.length : (response.data.count || 0);
       setNotificationCount(count);
     } catch (error) {
@@ -44,6 +47,14 @@ export default function Navbar() {
   };
 
   const navItems = [
+    // ✅ ÍTEM DE ADMIN (Solo visible si user.role === 'ADMIN')
+    ...(user?.role === 'ADMIN' ? [{
+      icon: Shield,
+      label: 'Admin',
+      path: '/admin/dashboard',
+      isAdmin: true // Propiedad opcional por si queremos darle estilo diferente
+    }] : []),
+
     {
       icon: BookOpen,
       label: 'Biblioteca',
@@ -61,7 +72,7 @@ export default function Navbar() {
       path: '/friends/search',
     },
     {
-      icon: HeartHandshake, // Nuevo item
+      icon: HeartHandshake,
       label: 'Mis Amigos',
       path: '/friends',
     },
@@ -79,13 +90,13 @@ export default function Navbar() {
 
   return (
     <nav className="fixed left-0 top-0 h-screen w-20 bg-white border-r border-neutral-200 shadow-card flex flex-col items-center py-6 z-40">
-      {/* Logo o Icono Principal (Opcional, si tienes uno arriba del todo) */}
       
       {/* Navigation Items */}
       <div className="flex-1 flex flex-col gap-4 mt-4">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.path;
+          const isSpecial = item.isAdmin;
 
           return (
             <button
@@ -94,13 +105,15 @@ export default function Navbar() {
               className={`relative w-12 h-12 rounded-xl flex items-center justify-center transition-all group ${
                 isActive
                   ? 'bg-primary-500 text-white shadow-vintage'
-                  : 'text-neutral-600 hover:bg-neutral-100'
+                  : isSpecial 
+                    ? 'text-red-500 hover:bg-red-50' // Color especial para Admin
+                    : 'text-neutral-600 hover:bg-neutral-100'
               }`}
               title={item.label}
             >
               <Icon className="w-6 h-6" />
               
-              {/* Tooltip simple al hacer hover (opcional para mejorar UX) */}
+              {/* Tooltip */}
               <span className="absolute left-14 bg-neutral-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
                 {item.label}
               </span>

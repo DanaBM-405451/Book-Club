@@ -24,22 +24,28 @@ const {
 } = require('../utils/validators');
 
 // ============================================
+// RUTAS ADMIN
+// ============================================
+
+router.get('/admin/stats', authenticate, requireAdmin, userController.getAdminStats);
+
+// ============================================
 // RUTAS PÚBLICAS (sin autenticación)
 // ============================================
 
-// ✅ RUTAS NUEVAS (agregar antes de las rutas existentes)
+//  (agregar antes de las rutas existentes)
 router.get('/search', userController.searchUsers); // Sin auth
 router.post('/batch', userController.getBatchProfiles); // Sin auth
 
 
-// ✅ IMPORTANTE: Las rutas específicas DEBEN ir ANTES de las rutas con parámetros
+//  Las rutas específicas DEBEN ir ANTES de las rutas con parámetros
 router.get('/avatars/default', userController.getDefaultAvatars);
 
 // ============================================
 // RUTAS PROTEGIDAS (requieren autenticación)
 // ============================================
 
-// ✅ Rutas específicas primero
+//  Rutas específicas primero
 router.get('/profile', authenticate, userController.getProfile);
 router.put('/profile', authenticate, updateProfileValidation, userController.updateProfile);
 router.post('/profile/avatar', authenticate, upload.single('avatar'), userController.uploadAvatar);
@@ -51,17 +57,20 @@ router.put('/notifications/settings', authenticate, updateNotificationSettingsVa
 router.put('/change-password', authenticate, changePasswordValidation, userController.changePassword);
 router.delete('/account', authenticate, userController.deleteAccount);
 
+router.post('/invite', authenticate, userController.inviteUser);
+
 // ============================================
 // RUTA INTERNA (sin autenticación)
 // ============================================
 
 router.post('/profile/create', userController.createProfile);
 
+
 // ============================================
 // RUTAS CON PARÁMETROS (DEBEN IR AL FINAL)
 // ============================================
 
-// ✅ Esta ruta DEBE ir al final porque captura cualquier cosa
+//  Esta ruta DEBE ir al final porque captura cualquier cosa
 router.get('/:userId', userController.getPublicProfile);
 
 module.exports = router;

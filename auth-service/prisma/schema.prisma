@@ -36,6 +36,7 @@ model User {
   
   // Relaciones
   refreshTokens   RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([email])
   @@index([username])
@@ -67,6 +68,31 @@ model RolePermiso {
   
   @@unique([role, permiso])
   @@map("role_permiso")
+}
+
+// ✅ AGREGAR ESTE MODELO AL FINAL
+model PasswordResetToken {
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  token           String    @unique @db.VarChar(500)
+  
+  // Expiración
+  expiresAt       DateTime  @map("expires_at")
+  
+  // Control de uso
+  isUsed          Boolean   @default(false) @map("is_used")
+  usedAt          DateTime? @map("used_at")
+  
+  // Timestamps
+  createdAt       DateTime  @default(now()) @map("created_at")
+  
+  // Relación
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 enum Role {

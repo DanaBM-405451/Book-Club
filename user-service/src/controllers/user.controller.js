@@ -4,6 +4,8 @@ const userService = require('../services/user.service');
 const prisma = require('../config/database'); 
 const { defaultAvatars } = require('../utils/cloudinary.utils');
 
+const axios = require('axios');
+
 class UserController {
   /**
    * GET /api/users/profile
@@ -381,6 +383,94 @@ class UserController {
       });
     } catch (error) {
       console.error('Error getting batch profiles:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/users/invite
+   * Enviar invitación por correo
+   */
+  async inviteUser(req, res, next) {
+    try {
+      const { email } = req.body;
+      const senderName = req.user.username; 
+
+      if (!email) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'El email es requerido' 
+        });
+      }
+
+      // ✅ CAMBIO CRÍTICO: Usar Axios para llamar a email-service
+      const emailServiceUrl = process.env.EMAIL_SERVICE_URL || 'http://localhost:3021';
+      
+      // URL de destino (La página de invitación que creamos)
+      const inviteUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/invite?target=app`;
+
+      await axios.post(`${emailServiceUrl}/api/email/send`, {
+        to: email,
+        subject: `${senderName} te ha invitado a unirte a Book Club`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 10px;">
+            <h2 style="color: #d97706; text-align: center;">¡Has sido invitado a Book Club!</h2>
+            <p style="color: #374151; font-size: 16px;">Hola,</p>
+            <p style="color: #374151; font-size: 16px;">
+              Tu amigo <strong>${senderName}</strong> te ha invitado a formar parte de nuestra comunidad de lectores apasionados.
+            </p>
+            <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 0; font-weight: bold; color: #4b5563;">En Book Club podrás:</p>
+              <ul style="color: #4b5563;">
+                <li>Llevar un registro detallado de tus lecturas 📚</li>
+                <li>Unirte a grupos y participar en retos 🏆</li>
+                <li>Ganar puntos y subir de nivel 🚀</li>
+              </ul>
+            </div>
+            <div style="text-align: center; margin-top: 30px;">
+              <a href="${inviteUrl}" 
+                 style="background-color: #d97706; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
+                Unirse Ahora
+              </a>
+            </div>
+            <p style="text-align: center; margin-top: 30px; font-size: 12px; color: #9ca3af;">
+              Si no solicitaste esta invitación, puedes ignorar este correo.
+            </p>
+          </div>
+        `,
+        type: 'INVITATION'
+      });
+
+      res.status(200).json({ 
+        success: true, 
+        message: 'Invitación enviada correctamente' 
+      });
+    } catch (error) {
+      console.error('Error enviando invitación:', error.message);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Error al enviar la invitación. Verifica que el servicio de email esté activo.' 
+      });
+    }
+  }
+  /**
+   * GET /api/users/admin/stats
+   * Obtener estadísticas globales de usuarios (Admin)
+   */
+async getAdminStats(req, res, next) {
+    try {
+      if (req.user.role !== 'ADMIN') {
+        return res.status(403).json({ success: false, message: 'Acceso denegado' });
+      }
+
+      // ✅ CORRECTO: Delegar al servicio
+      const stats = await userService.getGlobalStats(); 
+
+      res.json({
+        success: true,
+        data: stats
+      });
+    } catch (error) {
       next(error);
     }
   }

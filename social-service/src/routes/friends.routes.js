@@ -47,6 +47,12 @@ router.post('/:friendshipId/reject', rejectFriendRequest);
 router.get('/', getFriends);
 
 /**
+ * @route GET /friends/:friendshipId
+ * @desc Obtener un amigo amigos
+ */
+router.get('/:friendshipId', getFriends);
+
+/**
  * @route DELETE /friends/:friendshipId
  * @desc Eliminar amistad
  */
