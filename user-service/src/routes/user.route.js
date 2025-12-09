@@ -40,6 +40,7 @@ router.post('/batch', userController.getBatchProfiles); // Sin auth
 
 //  Las rutas específicas DEBEN ir ANTES de las rutas con parámetros
 router.get('/avatars/default', userController.getDefaultAvatars);
+router.post('/batch', userController.getProfilesBatch.bind(userController));
 
 // ============================================
 // RUTAS PROTEGIDAS (requieren autenticación)

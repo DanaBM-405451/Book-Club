@@ -335,26 +335,140 @@ class BookService {
   /**
    * Obtener estadísticas globales de biblioteca (Para Admin)
    */
-  async getGlobalLibraryStats() {
-    const totalBooks = await prisma.book.count({ where: { isDeleted: false } });
-    const totalReads = await prisma.userBook.count({ where: { status: 'COMPLETADO' } });
-    
-    // ✅ NUEVO: Lista de últimos 10 libros subidos
-    const latestBooks = await prisma.book.findMany({
-      take: 10,
-      where: { isDeleted: false },
-      orderBy: { createdAt: 'desc' },
-      select: { 
-        titulo: true, 
-        autor: true, 
-        createdAt: true,
-        uploadedByUserId: true 
+ // library-service/src/services/book.service.js
+
+  // Modificamos el método para aceptar un objeto de filtros
+
+  // ... dentro de BookService
+
+  async getGlobalLibraryStats({ startDate, endDate, genre } = {}) {
+    console.log("📊 Calculando estadísticas de biblioteca...", { startDate, endDate, genre });
+
+    // 1. Construir Filtro Dinámico
+    const whereClause = {
+      isDeleted: false
+    };
+
+    // Filtro de Fechas
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        // Ajustamos al final del día
+        end.setHours(23, 59, 59, 999);
+        
+        whereClause.createdAt = {
+          gte: start,
+          lte: end
+        };
       }
+    }
+
+    // Filtro de Género (buscamos dentro del string 'categorias')
+    if (genre && genre !== 'TODOS' && genre !== 'undefined') {
+      whereClause.categorias = {
+        contains: genre 
+      };
+    }
+
+    try {
+      // 2. Ejecutar consultas
+      const totalBooks = await prisma.book.count({ where: whereClause });
+      
+      // Para lecturas, intentamos filtrar por fecha de actualización si existe el filtro
+      const readsWhere = { status: 'COMPLETADO' };
+      if (whereClause.createdAt) {
+        readsWhere.updatedAt = whereClause.createdAt;
+      }
+      const totalReads = await prisma.userBook.count({ where: readsWhere });
+      
+      // 3. Obtener lista detallada
+      const latestBooks = await prisma.book.findMany({
+        take: 50, // Traemos suficientes para el reporte
+        where: whereClause,
+        orderBy: { createdAt: 'desc' },
+        select: { 
+          titulo: true, 
+          autor: true, 
+          categorias: true, 
+          createdAt: true, 
+          uploadedByUserId: true 
+        }
+      });
+
+      // Mapeo para el frontend (categorias -> genero)
+      const mappedBooks = latestBooks.map(b => ({
+        ...b,
+        genero: b.categorias ? b.categorias.split(',')[0] : 'General' // Tomamos la primera categoría
+      }));
+
+      return { totalBooks, totalReads, latestBooks: mappedBooks };
+
+    } catch (error) {
+      console.error("🔥 Error crítico en BookService:", error);
+      // Retornamos estructura vacía para no romper el frontend si falla la DB
+      return { totalBooks: 0, totalReads: 0, latestBooks: [] };
+    }
+  }
+
+ /*sync getGlobalLibraryStats({ startDate, endDate, genre } = {}) {
+    const whereClause = { isDeleted: false };
+    
+    // Construir filtro de fechas dinámico
+   // 1. Filtro de Fechas
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // Final del día
+
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        whereClause.createdAt = {
+          gte: start,
+          lte: end
+        };
+      }
+    }
+
+    if (genre && genre !== 'TODOS') {
+      // Usamos 'contains' porque 'categorias' es un String tipo "Fantasía, Terror"
+      whereClause.categorias = {
+        contains: genre 
+      };
+    }
+
+    // Construir filtro de género
+    const genreFilter = genre && genre !== 'TODOS' ? { genero: genre } : {};
+
+    // Combinar filtros (sin borrar el isDeleted: false)
+   /*onst whereClause = {
+      isDeleted: false,
+      ...dateFilter,
+      ...genreFilter
+    };*/
+
+   /* const totalBooks = await prisma.book.count({ where: whereClause });
+    
+    // Nota: Para lecturas finalizadas, el filtro de género podría requerir joins complejos.
+    // Para la demo, mantenemos lecturas totales simples o aplicamos solo fecha.
+    const totalReads = await prisma.userBook.count({ 
+      where: { 
+        status: 'COMPLETADO',
+        // Si quieres filtrar lecturas por fecha también:
+        updatedAt: dateFilter.createdAt 
+      } 
+    });
+    
+    // Lista filtrada
+   /* const latestBooks = await prisma.book.findMany({
+      take: 20, // Traemos más para el reporte
+      where: whereClause,
+      orderBy: { createdAt: 'desc' },
+      select: { titulo: true, autor: true, genero: true, createdAt: true, uploadedByUserId: true }
     });
 
     return { totalBooks, totalReads, latestBooks };
-  }
-
+  }*/
 }
 
 module.exports = new BookService();

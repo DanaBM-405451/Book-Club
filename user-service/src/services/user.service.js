@@ -383,6 +383,24 @@ class UserService {
 
     return { totalUsers, activeUsers, newUsers, latestUsers };
   }
+
+  /**
+   * Obtener múltiples perfiles por ID (Para el Dashboard)
+   */
+  async getProfilesByIds(userIds) {
+    return await prisma.profile.findMany({
+      where: {
+        userId: { in: userIds }
+      },
+      select: {
+        userId: true,
+        username: true,
+        nombre: true,
+        apellido: true
+      }
+    });
+  }
+
 }
 
 

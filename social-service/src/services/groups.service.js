@@ -497,18 +497,64 @@ async removeMember(groupId, adminId, targetUserId) {
   }
 }
 
-async getGlobalStats() {
-    const totalGroups = await prisma.group.count();
+// ... dentro de GroupsService
+  /*async getGlobalStats({ startDate, endDate } = {}) {
+    const whereClause = {};
+
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      if (!isNaN(start.getTime())) {
+        whereClause.createdAt = { gte: start, lte: end };
+      }
+    }
+
+    const totalGroups = await prisma.group.count({ where: whereClause });
 
     const latestGroups = await prisma.group.findMany({
       take: 5,
+      where: whereClause,
+      orderBy: { createdAt: 'desc' },
+      select: { name: true, createdAt: true }
+    });
+
+    return { totalGroups, latestGroups };
+  }*/
+
+    // ... dentro de la clase GroupsService
+
+    async getGlobalStats({ startDate, endDate } = {}) {
+    // Construimos el filtro dinámicamente
+    const whereClause = {};
+
+    // Si hay fechas, filtramos por createdAt
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // Incluir todo el último día
+
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        whereClause.createdAt = {
+          gte: start,
+          lte: end
+        };
+      }
+    }
+
+    // 1. Total Grupos (Filtrados por fecha si aplica)
+    const totalGroups = await prisma.group.count({ where: whereClause });
+
+    // 2. Últimos grupos creados (Filtrados)
+    const latestGroups = await prisma.group.findMany({
+      take: 5,
+      where: whereClause, // ✅ Aplicamos el filtro aquí también
       orderBy: { createdAt: 'desc' },
       select: { name: true, createdAt: true }
     });
 
     return { totalGroups, latestGroups };
   }
-
 }
 
 module.exports = new GroupsService();

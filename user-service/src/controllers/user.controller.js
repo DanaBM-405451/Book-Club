@@ -474,6 +474,25 @@ async getAdminStats(req, res, next) {
       next(error);
     }
   }
+
+  async getProfilesBatch(req, res, next) {
+    try {
+      const { userIds } = req.body;
+      if (!userIds || !Array.isArray(userIds)) {
+        return res.status(400).json({ success: false, message: 'Se requiere un array de userIds' });
+      }
+
+      const profiles = await userService.getProfilesByIds(userIds);
+
+      res.json({
+        success: true,
+        data: profiles
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+  
 }
 
 module.exports = new UserController();

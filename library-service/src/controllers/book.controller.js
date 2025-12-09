@@ -206,18 +206,18 @@ class BookController {
    */
   async getAdminStats(req, res, next) {
     try {
+      // 1. Recibir filtros del Query String
+    const { startDate, endDate, genre } = req.query;
       // Opcional: Verificar si es ADMIN aquí o en el middleware
       // if (req.user.role !== 'ADMIN') return res.status(403)...
 
       // Llamamos al método del servicio (que te pasé en la respuesta anterior)
       // Asegúrate de que tu book.service.js tenga el método getGlobalLibraryStats()
-      const stats = await bookService.getGlobalLibraryStats();
-
-      res.json({
-        success: true,
-        data: stats
-      });
+      const stats = await bookService.getGlobalLibraryStats({ startDate, endDate, genre });
+    res.json({ success: true, data: stats });
     } catch (error) {
+      console.error("Error en Library Stats:", error);
+      res.status(500).json({ message: error.message });
       next(error);
     }
   }

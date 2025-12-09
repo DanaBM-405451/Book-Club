@@ -398,10 +398,28 @@ const removeMember = async (req, res) => {
   }
 };
 
-const getAdminStats = async (req, res) => {
+/*const getAdminStats = async (req, res) => {
   try {
     // ✅ Llamamos al servicio, NO a prisma
     const stats = await groupsService.getGlobalStats(); 
+
+    return res.status(200).json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error en stats' });
+  }
+};*/
+
+const getAdminStats = async (req, res) => {
+  try {
+    // 1. Extraer filtros de la URL (frontend envía ?startDate=...&endDate=...)
+    const { startDate, endDate } = req.query;
+
+    // 2. Pasarlos al servicio para que filtre
+    const stats = await groupsService.getGlobalStats({ startDate, endDate });
 
     return res.status(200).json({
       success: true,
