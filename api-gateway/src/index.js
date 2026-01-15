@@ -21,8 +21,8 @@ app.use(cors({
 }));
 
 // ✅ PARSEAR BODY ANTES DE TODO
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Logging con DEBUG
 app.use((req, res, next) => {
@@ -70,7 +70,7 @@ async function forwardRequest(req, res, targetService) {
         'content-type': req.headers['content-type'] || 'application/json',
         'authorization': req.headers['authorization'],
       },
-      timeout: 30000,
+      timeout: 3000000,
       validateStatus: () => true,
     });
 
@@ -118,6 +118,8 @@ app.use((err, req, res, next) => {
     message: err.message || 'Internal server error',
   });
 });
+
+
 
 app.listen(PORT, () => {
   console.log(`

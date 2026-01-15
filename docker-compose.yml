@@ -185,7 +185,7 @@ services:
           cpus: '0.25'
           memory: 256M  
     ports:
-      - "3312:3306" # Mapeado al 3312 en tu PC para no chocar con las otras DBs
+      - "3312:3306" #  para no chocar con las otras DBs
     volumes:
       - chat_db_data:/var/lib/mysql
     networks:

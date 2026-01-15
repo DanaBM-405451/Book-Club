@@ -24,7 +24,7 @@ router.get(
 router.get(
   '/:friendId',
   authMiddleware,
-  verifyFriendship,
+  //verifyFriendship,
   conversationController.getOrCreateConversation
 );
 

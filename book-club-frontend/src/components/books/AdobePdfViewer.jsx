@@ -1,108 +1,88 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import Script from 'next/script';
 
-export default function AdobePdfViewer({ url, title, initialPage = 1, onPageChange }) {
+export default function AdobePdfViewer({ url, title, initialPage = 1, onProgress }) {
   const viewerRef = useRef(null);
-  const onPageChangeRef = useRef(onPageChange);
-  const adobeViewerRef = useRef(null);
 
   useEffect(() => {
-    onPageChangeRef.current = onPageChange;
-  }, [onPageChange]);
+    const initAdobe = () => {
+      if (window.AdobeDC && viewerRef.current) {
+        // REEMPLAZA CON TU CLIENT ID DE ADOBE (Es gratis conseguir uno en su web)
+        // Si usas localhost, este suele funcionar para pruebas:
+        const clientId = process.env.NEXT_PUBLIC_ADOBE_CLIENT_ID || 'b932d001646247c49539316654877717'; 
 
-  useEffect(() => {
-    if (adobeViewerRef.current) return; // Prevenir recargas
-
-    const initViewer = () => {
-      if (!window.AdobeDC || !viewerRef.current) return;
-
-      try {
         const adobeDCView = new window.AdobeDC.View({
-          clientId: "40ad5c2c058b4b4eb9069f1a6cbc864b", //  CLIENT ID
-          divId: "adobe-pdf-container",
+          clientId: clientId,
+          divId: 'adobe-pdf-div',
         });
 
-        adobeViewerRef.current = adobeDCView;
-
-        const previewPromise = adobeDCView.previewFile(
+        const previewFilePromise = adobeDCView.previewFile(
           {
             content: { location: { url: url } },
-            metaData: { 
-              id: `book-${title ? title.replace(/[^a-z0-9]/gi, '-') : 'doc'}`,
-              fileName: title || "Documento.pdf" 
-            }
+            metaData: { fileName: title || 'Libro' },
           },
           {
-            // ✅ MODO FULL WINDOW (Se ve mejor y habilita más herramientas)
-            embedMode: "FULL_WINDOW", 
-            defaultViewMode: "FIT_WIDTH",
-            
-            // ✅ HERRAMIENTAS DE ANOTACIÓN ACTIVAS
+            embedMode: 'SIZED_CONTAINER',
             showAnnotationTools: true,
-            enableAnnotationAPIs: true, 
-            includePDFAnnotations: true,
-            
             showLeftHandPanel: true,
-            showDownloadPDF: true,
-            showPrintPDF: false,
+            showPageControls: true,
+            defaultViewMode: 'FIT_WIDTH',
           }
         );
 
-        previewPromise.then((adobeViewer) => {
-          adobeViewer.getAPIs().then((apis) => {
-            if (initialPage > 1) {
-              apis.gotoLocation(parseInt(initialPage))
-                .catch(e => console.warn(e));
-            }
-          });
+        previewFilePromise.then((adobeViewer) => {
+          
+          // 1. Ir a la página inicial guardada
+          const startPage = parseInt(initialPage);
+    if (startPage && startPage > 1) {
+        console.log("📍 Restaurando lectura en página:", startPage);
+        apis.gotoLocation(startPage)
+          .catch(e => console.warn("Adobe no pudo saltar de página aún:", e));
+    }
 
+          // 2. Registrar Eventos de Cambio de Página
           const eventOptions = {
-            listenOn: [window.AdobeDC.View.Enum.Events.PAGE_VIEW]
+            listenOn: [window.AdobeDC.View.Enum.Events.PAGE_VIEW],
+            enablePDFAnalytics: true // Necesario para que dispare eventos
           };
 
           adobeDCView.registerCallback(
             window.AdobeDC.View.Enum.CallbackType.EVENT_LISTENER,
             (event) => {
               if (event.type === 'PAGE_VIEW') {
-                const page = event.data.pageNumber;
-                if (onPageChangeRef.current) {
-                  onPageChangeRef.current(page);
-                }
+                const pageNumber = event.data.pageNumber;
+                // Avisamos al componente padre
+                if (onProgress) onProgress(pageNumber);
               }
             },
             eventOptions
           );
         });
-      } catch (error) {
-        console.error("Error Adobe:", error);
       }
     };
 
+    // Si ya está cargado el script
     if (window.AdobeDC) {
-      initViewer();
+      initAdobe();
     } else {
-      document.addEventListener('adobe_dc_view_sdk.ready', initViewer);
-      if (!document.getElementById('adobe-dc-view-sdk-script')) {
-        const script = document.createElement('script');
-        script.src = 'https://documentcloud.adobe.com/view-sdk/viewer.js';
-        script.id = 'adobe-dc-view-sdk-script';
-        document.body.appendChild(script);
-      }
+      document.addEventListener('adobe_dc_view_sdk.ready', initAdobe);
     }
 
     return () => {
-      document.removeEventListener('adobe_dc_view_sdk.ready', initViewer);
+      document.removeEventListener('adobe_dc_view_sdk.ready', initAdobe);
     };
-  }, [url, title]); 
+  }, [url, title, initialPage]);
 
   return (
-    <div 
-      id="adobe-pdf-container" 
-      ref={viewerRef} 
-      className="w-full h-full" // Sin fondo blanco para que use el de Adobe
-      style={{ height: 'calc(100vh - 60px)', width: '100%' }} 
-    />
+    <div className="w-full h-full bg-gray-100 relative">
+      <Script
+        src="https://documentcloud.adobe.com/view-sdk/main.js"
+        strategy="lazyOnload"
+      />
+      <div id="adobe-pdf-div" ref={viewerRef} className="w-full h-full" />
+    </div>
   );
 }
 

@@ -6,6 +6,7 @@ const noteRoutes = require('./routes/note.routes');
 const annotationRoutes = require('./routes/annotation.routes');
 const errorHandler = require('./middleware/errorHandler');
 
+
 const app = express();
 const PORT = process.env.PORT || 3003;
 

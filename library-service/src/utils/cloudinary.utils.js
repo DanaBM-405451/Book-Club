@@ -1,144 +1,98 @@
+
 // library-service/src/utils/cloudinary.utils.js
+
+const path = require('path');
+// Aseguramos carga de .env por si acaso
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
+const fs = require('fs');
 
-// Configurar Cloudinary
+// Configuración Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
+  timeout: 600000,
 });
 
-// ✅ Agregar verificación de configuración
-console.log('☁️ Cloudinary config:', {
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME ? '✅ Set' : '❌ Missing',
-  api_key: process.env.CLOUDINARY_API_KEY ? '✅ Set' : '❌ Missing',
-  api_secret: process.env.CLOUDINARY_API_SECRET ? '✅ Set' : '❌ Missing',
-});
+// Configuración Multer (Disk Storage)
+const uploadDir = path.join(__dirname, '../../uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
 
-// Configurar Multer para guardar en memoria
-const storage = multer.memoryStorage();
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    // Limpiamos el nombre original de caracteres raros
+    const cleanName = file.originalname.replace(/[^a-zA-Z0-9.]/g, '_');
+    cb(null, file.fieldname + '-' + uniqueSuffix + '-' + cleanName);
+  }
+});
 
 const upload = multer({
   storage: storage,
-  limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB
-  },
-  fileFilter: (req, file, cb) => {
-    // Aceptar portadas (imágenes)
-    if (file.fieldname === 'cover') {
-      if (file.mimetype.startsWith('image/')) {
-        cb(null, true);
-      } else {
-        cb(new Error('Solo se permiten imágenes para la portada'));
-      }
-    }
-    // Aceptar PDF
-    else if (file.fieldname === 'pdf') {
-      if (file.mimetype === 'application/pdf') {
-        cb(null, true);
-      } else {
-        cb(new Error('Solo se permiten archivos PDF'));
-      }
-    }
-    // Aceptar EPUB
-    else if (file.fieldname === 'epub') {
-      if (
-        file.mimetype === 'application/epub+zip' ||
-        file.originalname.endsWith('.epub')
-      ) {
-        cb(null, true);
-      } else {
-        cb(new Error('Solo se permiten archivos EPUB'));
-      }
-    } else {
-      cb(null, true);
-    }
-  },
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
 });
 
 /**
- * Subir portada de libro a Cloudinary
+ * Función robusta para subir a Cloudinary (Compatible con Windows)
  */
-async function uploadBookCover(buffer, bookId) {
+async function uploadToCloudinary(filePath, folder, resourceType) {
   return new Promise((resolve, reject) => {
-    const uploadStream = cloudinary.uploader.upload_stream(
+    
+    // 1. SANITIZACIÓN DE RUTA (Windows Fix) 🧹
+    // Convertimos backslashes a slashes y resolvemos la ruta absoluta
+    const absolutePath = path.resolve(filePath);
+    
+    console.log(`📤 Preparando subida (${resourceType})...`);
+    console.log(`   - Ruta original: ${filePath}`);
+    console.log(`   - Ruta absoluta: ${absolutePath}`);
+
+    // 2. VERIFICACIÓN DE EXISTENCIA 🕵️‍♂️
+    if (!fs.existsSync(absolutePath)) {
+        console.error("❌ ERROR CRÍTICO: El archivo no existe en disco:", absolutePath);
+        return reject(new Error(`File not found at ${absolutePath}`));
+    }
+
+    // 3. SUBIDA
+    cloudinary.uploader.upload(
+      absolutePath, 
       {
-        folder: `book-club/covers`,
-        public_id: `book_${bookId}_cover`,
-        resource_type: 'image',
-        format: 'jpg',
-        transformation: [
-          { width: 600, height: 900, crop: 'limit' },
-          { quality: 'auto:good' },
-        ],
-        access_mode: 'public',
+        folder: folder,
+        resource_type: resourceType,
+        use_filename: true,
+        unique_filename: false,
+        timeout: 600000
       },
       (error, result) => {
         if (error) {
-          console.error('❌ Cloudinary cover upload error:', error);
+          console.error(`❌ Cloudinary Error Detallado:`, error);
           reject(error);
         } else {
-          console.log('✅ Cover uploaded:', result.secure_url);
+          console.log(`✅ Subida exitosa: ${result.secure_url}`);
           resolve(result.secure_url);
         }
       }
     );
-
-    uploadStream.end(buffer);
   });
 }
 
-/**
- * Subir archivo PDF/EPUB a Cloudinary
- */
-async function uploadBookFile(buffer, bookId, fileType) {
-  return new Promise((resolve, reject) => {
-    const extension = fileType.toLowerCase(); //pdf o epub
-
-    const filename = `book_${bookId}.${extension}`;
-
-    const uploadStream = cloudinary.uploader.upload_stream(
-      {
-        folder: `book-club/files`,
-        public_id: filename, // Usamos el nombre con punto
-        resource_type: 'raw', // Usar 'raw' para archivos no-imagen
-        access_mode: 'public',
-        use_filename: true,   // Usar el nombre de archivo especificado
-        unique_filename: false, // No agregar caracteres aleatorios
-        format: extension // Forzar formato
-        
-      },
-      (error, result) => {
-        if (error) {
-          console.error(`❌ Cloudinary ${fileType} upload error:`, error);
-          reject(error);
-        } else {
-          // Forzamos que la URL tenga la extensión si Cloudinary no la puso
-          let secureUrl = result.secure_url;
-          if (!secureUrl.endsWith(`.${extension}`)) {
-             // A veces raw resource type no pone extension, aseguramos que la URL sirva
-             // Pero con use_filename y public_id debería bastar.
-             console.log(`⚠️ URL generated without extension: ${secureUrl}`);
-          }
-          console.log(`✅ ${fileType} uploaded:`, secureUrl);
-          resolve(secureUrl);
-        }
-      }
-    );
-
-    uploadStream.end(buffer);
-  });
+// Wrappers
+async function uploadBookCover(filePath, bookId) {
+    return await uploadToCloudinary(filePath, 'book-club/covers', 'image');
 }
 
+async function uploadBookFile(filePath, bookId, fileType) {
+    return await uploadToCloudinary(filePath, 'book-club/files', 'raw');
+}
 
-
-module.exports = {
-  upload,
-  uploadBookCover,
-  uploadBookFile,
-};
+module.exports = { upload, uploadBookCover, uploadBookFile };
 
 /*
 const cloudinary = require('cloudinary').v2;

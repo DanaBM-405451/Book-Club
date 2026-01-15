@@ -2,143 +2,89 @@
 
 const bookService = require('../services/book.service');
 
-
 class BookController {
+
+  // 1. Crear Libro
   async createBook(req, res, next) {
     try {
-        const userId = req.user.id;
-        const bookData = req.body;
-    
-      
-      // ✅ Multer procesa los archivos y los guarda en req.files
+      const userId = req.user.id;
       const files = req.files || {};
-
-      console.log('📚 Controller - Creating book');
-      console.log('👤 User ID:', userId);
-      console.log('📦 Body:', bookData);
-      console.log('📁 Files:', {
-        cover: files.cover ? `${files.cover[0].originalname} (${files.cover[0].size} bytes)` : 'none',
-        pdf: files.pdf ? `${files.pdf[0].originalname} (${files.pdf[0].size} bytes)` : 'none',
-        epub: files.epub ? `${files.epub[0].originalname} (${files.epub[0].size} bytes)` : 'none',
-      });
-
-      const result = await bookService.createBook(userId, bookData, files);
-
-      res.status(201).json({
-        success: true,
-        message: 'Libro creado exitosamente',
-        data: result,
-      });
+      const result = await bookService.createBook(userId, req.body, files);
+      res.status(201).json({ success: true, message: 'Libro creado', data: result });
     } catch (error) {
-      console.error('❌ Controller error:', error);
       next(error);
     }
-  
-
   }
 
+  // 2. Obtener libros
   async getUserBooks(req, res, next) {
     try {
       const userId = req.user.userId || req.user.id;
-      const filters = {
-        search: req.query.search,
-        shelf: req.query.shelf,
-        page: req.query.page,
-        limit: req.query.limit,
-      };
-
-      const result = await bookService.getUserBooks(userId, filters);
-
-      res.json({
-        success: true,
-        data: result,
-      });
+      const result = await bookService.getUserBooks(userId, req.query);
+      res.json({ success: true, data: result });
     } catch (error) {
       next(error);
     }
   }
 
+  // 3. Obtener un libro
   async getUserBook(req, res, next) {
     try {
       const userId = req.user.userId || req.user.id;
-      const { id } = req.params;
-
-      const userBook = await bookService.getUserBook(userId, id);
-
-      res.json({
-        success: true,
-        data: { userBook },
-      });
+      const userBook = await bookService.getUserBook(userId, req.params.id);
+      res.json({ success: true, data: { userBook } });
     } catch (error) {
       next(error);
     }
   }
 
+  // 4. Actualizar libro
   async updateBook(req, res, next) {
     try {
       const userId = req.user.userId || req.user.id;
-      const { id } = req.params;
-      
-      // 1. Extraer archivos (Multer los pone aquí)
       const files = req.files || {};
-      
-      console.log(`🔄 Updating book ${id} for user ${userId}`);
-      if (files.cover) console.log('📷 New cover received');
-
-      // 2. Pasar 'files' al servicio junto con el body
-      const book = await bookService.updateBook(userId, id, req.body, files);
-
-      res.json({
-        success: true,
-        message: 'Libro actualizado correctamente',
-        data: { userBook: book }, // El servicio devuelve el userBook actualizado
-      });
+      const book = await bookService.updateBook(userId, req.params.id, req.body, files);
+      res.json({ success: true, message: 'Actualizado', data: { userBook: book } });
     } catch (error) {
       next(error);
     }
   }
   
+  // 5. Eliminar
   async deleteBook(req, res, next) {
     try {
       const userId = req.user.userId || req.user.id;
-      const { id } = req.params;
-
-      await bookService.deleteBook(userId, id);
-
-      res.json({
-        success: true,
-        message: 'Libro eliminado correctamente',
-      });
+      await bookService.deleteBook(userId, req.params.id);
+      res.json({ success: true, message: 'Eliminado' });
     } catch (error) {
       next(error);
     }
   }
 
+  // 6. Calificar
   async rateBook(req, res, next) {
     try {
       const userId = req.user.userId || req.user.id;
-      const { id } = req.params;
-      const { rating } = req.body;
-
-      const userBook = await bookService.rateBook(userId, id, rating);
-
-      res.json({
-        success: true,
-        message: 'Calificación guardada',
-        data: { userBook },
-      });
+      const userBook = await bookService.rateBook(userId, req.params.id, req.body.rating);
+      res.json({ success: true, message: 'Calificación guardada', data: { userBook } });
     } catch (error) {
       next(error);
     }
   }
 
+  
   async updateProgress(req, res, next) {
     try {
       const userId = req.user.userId || req.user.id;
       const { id } = req.params;
-      const { currentPage } = req.body;
+      
+      // Extraemos los datos del body
+      const { currentPage, durationMinutes } = req.body;
 
-      const userBook = await bookService.updateProgress(userId, id, currentPage);
+      console.log(`⏱️ Update: Libro ${id}, Posición ${currentPage}, Tiempo ${durationMinutes}min`);
+
+      
+      const userBook = await bookService.updateProgress(userId, id, currentPage, durationMinutes);
 
       res.json({
         success: true,
@@ -150,78 +96,49 @@ class BookController {
     }
   }
 
+  // 8. Cambiar estante
   async changeShelf(req, res, next) {
     try {
       const userId = req.user.userId || req.user.id;
-      const { id } = req.params;
-      const { shelf } = req.body;
-
-      const userBook = await bookService.changeShelf(userId, id, shelf);
-
-      res.json({
-        success: true,
-        message: 'Estante actualizado',
-        data: { userBook },
-      });
+      const userBook = await bookService.changeShelf(userId, req.params.id, req.body.shelf);
+      res.json({ success: true, message: 'Estante actualizado', data: { userBook } });
     } catch (error) {
       next(error);
     }
   }
 
+  // 9. Tags
   async manageTags(req, res, next) {
     try {
       const userId = req.user.userId || req.user.id;
-      const { id } = req.params;
-      const { tags } = req.body;
-
-      const userBook = await bookService.manageTags(userId, id, tags);
-
-      res.json({
-        success: true,
-        message: 'Tags actualizados',
-        data: { userBook },
-      });
+      const userBook = await bookService.manageTags(userId, req.params.id, req.body.tags);
+      res.json({ success: true, message: 'Tags actualizados', data: { userBook } });
     } catch (error) {
       next(error);
     }
   }
 
+  // 10. Stats Usuario
   async getLibraryStats(req, res, next) {
     try {
       const userId = req.user.userId || req.user.id;
       const stats = await bookService.getLibraryStats(userId);
-
-      res.json({
-        success: true,
-        data: { stats },
-      });
+      res.json({ success: true, data: { stats } });
     } catch (error) {
       next(error);
     }
   }
 
-  /**
-   * Estadísticas Globales para el Super Admin
-   * GET /api/books/admin/stats
-   */
+  // 11. Stats Admin
   async getAdminStats(req, res, next) {
     try {
-      // 1. Recibir filtros del Query String
-    const { startDate, endDate, genre } = req.query;
-      // Opcional: Verificar si es ADMIN aquí o en el middleware
-      // if (req.user.role !== 'ADMIN') return res.status(403)...
-
-      // Llamamos al método del servicio (que te pasé en la respuesta anterior)
-      // Asegúrate de que tu book.service.js tenga el método getGlobalLibraryStats()
+      const { startDate, endDate, genre } = req.query;
       const stats = await bookService.getGlobalLibraryStats({ startDate, endDate, genre });
-    res.json({ success: true, data: stats });
+      res.json({ success: true, data: stats });
     } catch (error) {
-      console.error("Error en Library Stats:", error);
-      res.status(500).json({ message: error.message });
       next(error);
     }
   }
-  
 }
 
 module.exports = new BookController();

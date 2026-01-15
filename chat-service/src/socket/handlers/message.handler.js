@@ -33,7 +33,7 @@ const registerMessageHandlers = (io, socket) => {
       const { receiverId, content, replyToId } = validation.value;
 
       // Verificar que sean amigos
-      try {
+      /*try {
         const friendshipResponse = await checkFriendship(
           senderId,
           receiverId,
@@ -55,7 +55,7 @@ const registerMessageHandlers = (io, socket) => {
             message: 'Error verificando relación de amistad',
           });
         }
-      }
+      }*/
 
       // Obtener o crear conversación
       const conversation = await conversationService.getOrCreateConversation(

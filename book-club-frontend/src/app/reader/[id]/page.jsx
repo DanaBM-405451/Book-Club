@@ -10,7 +10,7 @@ import api from '@/lib/api';
 import toast, { Toaster } from 'react-hot-toast';
 import AdobePdfViewer from '@/components/books/AdobePdfViewer';
 
-// --- TEMAS (Configuración Visual) ---
+// ✅ 1. RESTAURAMOS LA CONSTANTE 'THEMES' (Esto arregla el crash)
 const THEMES = {
   light: {
     name: 'Claro',
@@ -48,33 +48,45 @@ export default function ReaderPage() {
   // Modal de Nota
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [noteContent, setNoteContent] = useState('');
-  const [currentCfiForNote, setCurrentCfiForNote] = useState(null); // CFI específico (texto) o null (página)
+  const [currentCfiForNote, setCurrentCfiForNote] = useState(null);
 
   // Configuración de Lectura
   const [currentTheme, setCurrentTheme] = useState('light');
-  const [fontSize, setFontSize] = useState(100); // Porcentaje
+  const [fontSize, setFontSize] = useState(100);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
 
-  // Refs
+  // Refs para EPUB
   const epubContainerRef = useRef(null); 
   const renditionRef = useRef(null);
   const bookRef = useRef(null);
   const isRendered = useRef(false);
 
+  // ✅ 2. REFS PARA EL TIEMPO Y PROGRESO (Nuevo)
+  const startTimeRef = useRef(Date.now());
+  const lastPageRef = useRef(null);
+
   // 1. CARGA INICIAL
   useEffect(() => { loadBookData(); }, []);
 
-  // 2. INICIAR EPUB
+  // Guardar progreso al salir (Desmontar componente)
   useEffect(() => {
-    if (book?.epubFileUrl && epubContainerRef.current && !isRendered.current) {
-      setTimeout(() => initEpub(), 200);
-    }
     return () => {
+      if (lastPageRef.current) {
+        saveProgress(lastPageRef.current, true); // Forzar guardado al salir
+      }
+      // Limpieza EPUB
       if (bookRef.current) {
         bookRef.current.destroy();
         isRendered.current = false;
       }
     };
+  }, []);
+
+  // 2. INICIAR EPUB (Solo si es epub)
+  useEffect(() => {
+    if (book?.epubFileUrl && epubContainerRef.current && !isRendered.current) {
+      setTimeout(() => initEpub(), 200);
+    }
   }, [book?.epubFileUrl]);
 
   const loadBookData = async () => {
@@ -84,8 +96,18 @@ export default function ReaderPage() {
         api.get(`/api/library/books/${params.id}`),
         api.get(`/api/library/books/${params.id}/notes`)
       ]);
-      setBook(bookRes.data.data.userBook.book);
+      
+      const bookData = bookRes.data.data.userBook.book;
+      // Inyectamos userBook dentro de book para tener el progreso
+      bookData.userBook = bookRes.data.data.userBook;
+      
+      setBook(bookData);
       setNotes(notesRes.data.data.notes || []);
+
+      // Inicializar refs
+      startTimeRef.current = Date.now();
+      lastPageRef.current = bookData.userBook?.currentPage || (bookData.epubFileUrl ? null : 1);
+
     } catch (error) {
       console.error(error);
       router.push('/dashboard');
@@ -94,7 +116,76 @@ export default function ReaderPage() {
     }
   };
 
-  const initEpub = async () => {
+  // ✅ 3. FUNCIÓN INTELIGENTE DE GUARDADO (Unifica PDF y EPUB + Tiempo)
+  /*const saveProgress = async (pageOrCfi, forceSave = false) => {
+    // Actualizar ref local siempre
+    lastPageRef.current = pageOrCfi;
+
+    const now = Date.now();
+    const timeDiff = now - startTimeRef.current;
+    const minutes = Math.floor(timeDiff / 1000 / 60);
+
+    // Guardar si pasó 1 minuto O si forzamos el guardado (al salir) O si es un cambio significativo
+    if (minutes >= 1 || forceSave) {
+        try {
+            console.log(`💾 Guardando: Ubicación ${pageOrCfi} - Tiempo: ${minutes} min`);
+            
+            // Detectar si es EPUB por el formato del CFI
+            const isEpub = typeof pageOrCfi === 'string' && pageOrCfi.startsWith('epubcfi');
+
+            await api.put(`/api/library/books/${params.id}/progress`, { 
+                currentPage: pageOrCfi, 
+                durationMinutes: minutes, // ✅ Enviamos tiempo al backend
+                isEpub: isEpub
+            });
+
+            // Reiniciar contador de tiempo para no sumar doble
+            startTimeRef.current = Date.now();
+        } catch (e) {
+            console.error("Error guardando progreso", e);
+        }
+    }
+  };*/
+
+  const saveProgress = async (pageOrCfi, forceSave = false) => {
+    lastPageRef.current = pageOrCfi;
+
+    const now = Date.now();
+    const timeDiff = now - startTimeRef.current;
+    const minutes = Math.floor(timeDiff / 1000 / 60);
+
+    // Guardar si pasó 1 minuto O si forzamos el guardado
+    if (minutes >= 1 || forceSave) {
+        try {
+            console.log(`💾 Guardando: ${pageOrCfi} (${minutes} min)`);
+            
+            const isEpub = typeof pageOrCfi === 'string' && pageOrCfi.startsWith('epubcfi');
+            
+            // Construimos el payload
+            const payload = { 
+                currentPage: pageOrCfi,
+                isEpub
+            };
+
+            // Solo agregamos minutos si son mayores a 0
+            if (minutes > 0) {
+                payload.durationMinutes = minutes;
+            }
+
+            await api.put(`/api/library/books/${params.id}/progress`, payload);
+
+            // Reiniciar contador SOLO si enviamos tiempo
+            if (minutes > 0) startTimeRef.current = Date.now();
+
+        } catch (e) {
+            console.error("Error guardando progreso", e);
+        }
+    }
+  };
+
+ const initEpub = async () => {
+   if (!epubContainerRef.current) return;
+
     try {
       const ePub = (await import('epubjs')).default;
       const response = await fetch(book.epubFileUrl);
@@ -104,58 +195,69 @@ export default function ReaderPage() {
       bookRef.current = epubBook;
       await epubBook.ready;
 
+      // 🛡️ DOBLE PROTECCIÓN: Verificamos de nuevo antes de usarlo
+      if (!epubContainerRef.current) return;
+
       const { clientWidth, clientHeight } = epubContainerRef.current;
 
+      // 1. PRIMERO DEFINIMOS RENDITION
       const rendition = epubBook.renderTo(epubContainerRef.current, {
         width: clientWidth,
         height: clientHeight,
         flow: 'paginated',
         manager: 'default',
-        allowScriptedContent: false,
+        allowScriptedContent: true,
       });
 
+      // 2. GUARDAMOS LA REFERENCIA
       renditionRef.current = rendition;
+      isRendered.current = true;
 
-      // REGISTRAR TEMAS
+      // 3. REGISTRAMOS TEMAS
       rendition.themes.register('light', THEMES.light.style);
       rendition.themes.register('sepia', THEMES.sepia.style);
       rendition.themes.register('dark', THEMES.dark.style);
-      rendition.themes.select('light');
-      rendition.themes.fontSize('100%');
+      rendition.themes.select(currentTheme); // Usar el tema actual del estado
+      rendition.themes.fontSize(`${fontSize}%`);
 
-      // Ir a la última página leída
-      const savedCfi = book.userBook?.currentPage;
-      if (savedCfi && savedCfi.startsWith('epubcfi')) {
+      // 4. MOSTRAR PÁGINA (Recuperar progreso)
+      // Buscamos en lastReadPosition (EPUB) o currentPage (fallback)
+      const savedCfi = book.userBook?.lastReadPosition || book.userBook?.currentPage;
+      
+      if (savedCfi && typeof savedCfi === 'string' && savedCfi.startsWith('epubcfi')) {
         await rendition.display(savedCfi);
       } else {
         await rendition.display();
       }
 
-      // --- EVENTOS ---
+      // 5. REGISTRAR EVENTOS (Ahora sí, porque rendition ya existe)
       rendition.on('relocated', (location) => {
         setSelectionMenu(prev => ({ ...prev, show: false }));
         if (location.start) {
           const percent = Math.floor(location.start.percentage * 100);
           setLocationStr(`${percent}%`);
-          updateProgress(location.start.cfi);
+          // Guardar progreso
+          saveProgress(location.start.cfi);
         }
       });
 
-      // DETECCIÓN DE SELECCIÓN
       rendition.on('selected', (cfiRange, contents) => {
         const selection = contents.window.getSelection();
         if (selection.toString().length > 0) {
           const range = selection.getRangeAt(0);
           const rect = range.getBoundingClientRect();
-          const iframeRect = epubContainerRef.current.querySelector('iframe').getBoundingClientRect();
-          
-          setSelectionMenu({
-            show: true,
-            x: rect.left + iframeRect.left + (rect.width / 2),
-            y: rect.top + iframeRect.top - 10,
-            cfiRange: cfiRange,
-            text: selection.toString()
-          });
+          // Aseguramos que el iframe existe antes de leer su rect
+          const iframe = epubContainerRef.current.querySelector('iframe');
+          if (iframe) {
+              const iframeRect = iframe.getBoundingClientRect();
+              setSelectionMenu({
+                show: true,
+                x: rect.left + iframeRect.left + (rect.width / 2),
+                y: rect.top + iframeRect.top - 10,
+                cfiRange: cfiRange,
+                text: selection.toString()
+              });
+          }
         }
       });
 
@@ -164,20 +266,15 @@ export default function ReaderPage() {
         setShowSettingsMenu(false);
       });
 
-      // --- INYECCIÓN DE ESTILOS (AQUÍ MEJORAMOS EL SUBRAYADO) ---
+      // 6. INYECTAR ESTILOS CSS
       rendition.hooks.content.register((contents) => {
         const style = contents.document.createElement('style');
         style.innerHTML = `
           ::selection { background: rgba(255, 215, 0, 0.3); }
-          
-          /* MEJORA DE SUBRAYADO: mix-blend-mode multiplica el color con el texto */
           .hl-yellow { background-color: rgba(255, 235, 59, 0.5); mix-blend-mode: multiply; }
           .hl-green { background-color: rgba(76, 175, 80, 0.5); mix-blend-mode: multiply; }
           .hl-pink { background-color: rgba(240, 98, 146, 0.5); mix-blend-mode: multiply; }
-          
-          /* Corrección para modo oscuro (el multiply oscurece, así que en dark mode usamos opacidad normal) */
           body[style*="background: rgb(26, 26, 26)"] .hl-yellow { mix-blend-mode: normal; opacity: 0.4; }
-          
           body { font-family: 'Helvetica', sans-serif !important; line-height: 1.6 !important; } 
         `;
         contents.document.head.appendChild(style);
@@ -188,19 +285,24 @@ export default function ReaderPage() {
         });
       });
 
-      // Pintar notas existentes
-      notes.forEach(note => {
-        if (note.cfiRange) rendition.annotations.add('highlight', note.cfiRange, {}, null, `hl-${note.color || 'yellow'}`);
-      });
+      // 7. PINTAR NOTAS
+      if (notes && notes.length > 0) {
+        notes.forEach(note => {
+            if (note.cfiRange) {
+                try {
+                    rendition.annotations.add('highlight', note.cfiRange, {}, null, `hl-${note.color || 'yellow'}`);
+                } catch(e) { console.warn("Error pintando nota:", e); }
+            }
+        });
+      }
 
     } catch (error) {
       console.error("Error EPUB:", error);
-      toast.error("Error al cargar libro");
+      toast.error("Error al cargar libro EPUB");
     }
   };
 
   // --- FUNCIONES UI ---
-
   const handlePrev = () => renditionRef.current?.prev();
   const handleNext = () => renditionRef.current?.next();
 
@@ -217,7 +319,7 @@ export default function ReaderPage() {
     renditionRef.current?.themes.select(themeKey);
   };
 
-  // --- AGREGAR SUBRAYADO SIMPLE ---
+  // --- ANOTACIONES ---
   const addHighlight = async (color) => {
     if (!selectionMenu.cfiRange) return;
     
@@ -227,67 +329,46 @@ export default function ReaderPage() {
 
     try {
       const res = await api.post(`/api/library/books/${params.id}/notes`, {
-        content: selectionMenu.text, 
-        type: 'HIGHLIGHT', 
-        cfiRange: selectionMenu.cfiRange, 
-        color, 
-        page: 0
+        content: selectionMenu.text, type: 'HIGHLIGHT', cfiRange: selectionMenu.cfiRange, color, page: 0
       });
       setNotes([...notes, res.data.data.note]);
       toast.success('Subrayado guardado');
     } catch (e) { toast.error('Error al guardar'); }
   };
 
-  // --- AGREGAR NOTA (Texto o Página) ---
-  
-  // 1. Abrir desde el botón flotante (Nota sobre texto)
   const openNoteFromSelection = () => {
     if (!selectionMenu.cfiRange) return;
-    setCurrentCfiForNote(selectionMenu.cfiRange); // Guardamos el rango exacto
+    setCurrentCfiForNote(selectionMenu.cfiRange);
     setNoteContent('');
     setShowNoteModal(true);
     setSelectionMenu(prev => ({ ...prev, show: false }));
   };
 
-  // 2. Abrir desde la barra superior (Nota de página general)
   const openNoteFromHeader = () => {
-    // Si es EPUB, intentamos obtener la ubicación actual
     const currentLocation = renditionRef.current?.location?.start?.cfi;
-    setCurrentCfiForNote(currentLocation || null); // Guardamos la ubicación actual
+    setCurrentCfiForNote(currentLocation || null);
     setNoteContent('');
     setShowNoteModal(true);
   };
 
   const saveNote = async () => {
     if (!noteContent.trim()) return;
-
-    // Si hay un rango seleccionado, lo subrayamos visualmente
-    // Si es nota de página (currentCfiForNote es solo un punto), no subrayamos
     const isRange = currentCfiForNote && currentCfiForNote.includes(','); 
 
     if (isRange) {
       renditionRef.current.annotations.add('highlight', currentCfiForNote, {}, null, 'hl-yellow');
-      // Limpiar selección si existe
       const selection = renditionRef.current.getContents()[0]?.window.getSelection();
       if(selection) selection.removeAllRanges();
     }
 
     try {
       const res = await api.post(`/api/library/books/${params.id}/notes`, {
-        content: noteContent, 
-        type: 'NOTE', 
-        cfiRange: currentCfiForNote, // Puede ser rango o punto
-        color: 'yellow', 
-        page: 0
+        content: noteContent, type: 'NOTE', cfiRange: currentCfiForNote, color: 'yellow', page: 0
       });
       setNotes([...notes, res.data.data.note]);
       toast.success('Nota guardada');
       setShowNoteModal(false);
     } catch (e) { toast.error('Error al guardar nota'); }
-  };
-
-  const updateProgress = async (cfi) => {
-    try { await api.put(`/api/library/books/${params.id}/progress`, { currentPage: cfi, isEpub: true }); } catch (e) {}
   };
 
   const deleteAnnotation = async (id, cfiRange) => {
@@ -299,202 +380,149 @@ export default function ReaderPage() {
     } catch (e) {}
   };
 
+  // ✅ Wrapper para el PDF (recibe el número de página del componente hijo)
+  const handlePdfProgress = (pageNumber) => {
+    saveProgress(parseInt(pageNumber));
+  };
+
   if (loading) return <div className="h-screen bg-neutral-50 flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
   if (!book) return null;
 
   return (
     <>
       <Toaster position="top-center" />
-      <div className={`h-screen w-screen flex flex-col overflow-hidden transition-colors duration-300 ${THEMES[currentTheme].bgClass}`}>
-        
-        {/* HEADER */}
-        <header className={`h-14 flex items-center justify-between px-4 z-20 shadow-sm flex-shrink-0 border-b ${currentTheme === 'dark' ? 'border-neutral-700 bg-neutral-800' : 'border-neutral-200 bg-white'}`}>
-          
-          {/* Izquierda: Volver + Título */}
-          <div className="flex items-center gap-3">
-            <button onClick={() => router.back()} className="p-2 hover:opacity-70 rounded-full transition-colors">
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <div>
-              <h1 className="text-sm font-bold line-clamp-1 max-w-[200px]">{book.titulo}</h1>
-              <p className="text-xs opacity-70">{locationStr || '...'}</p>
+      
+      {/* Si es PDF */}
+      {book.pdfFileUrl ? (
+         <div className="h-screen w-screen flex flex-col bg-neutral-100">
+            {/* Header simple para PDF */}
+            <div className="h-14 bg-white border-b flex items-center px-4 justify-between shrink-0 shadow-sm z-10">
+               <button onClick={() => router.back()} className="flex items-center gap-2 text-sm font-bold text-neutral-600 hover:text-neutral-900">
+                 <ArrowLeft className="w-5 h-5" /> Volver
+               </button>
+               <span className="font-medium truncate max-w-md">{book.titulo}</span>
+               <div className="w-5"></div>
             </div>
-          </div>
-          
-          {/* Derecha: Botones de Acción */}
-          <div className="flex items-center gap-1">
             
-            {/* 1. BOTÓN NOTA (Página General) - RESTAURADO */}
-            <button 
-              onClick={openNoteFromHeader} 
-              className="p-2 hover:opacity-70 rounded-full"
-              title="Agregar nota en esta página"
-            >
-              <StickyNote className="w-5 h-5" />
-            </button>
+            {/* Visor PDF */}
+            <div className="flex-1 overflow-hidden relative">
+                <AdobePdfViewer 
+                    url={book.pdfFileUrl} 
+                    title={book.titulo}
+                    initialPage={book.userBook?.currentPage || 1}
+                    onProgress={handlePdfProgress} // ✅ CONECTADO
+                />
+            </div>
+         </div>
+      ) : (
+         /* Si es EPUB */
+         <div className={`h-screen w-screen flex flex-col overflow-hidden transition-colors duration-300 ${THEMES[currentTheme].bgClass}`}>
+            
+            {/* HEADER EPUB */}
+            <header className={`h-14 flex items-center justify-between px-4 z-20 shadow-sm flex-shrink-0 border-b ${currentTheme === 'dark' ? 'border-neutral-700 bg-neutral-800' : 'border-neutral-200 bg-white'}`}>
+              <div className="flex items-center gap-3">
+                <button onClick={() => router.back()} className="p-2 hover:opacity-70 rounded-full transition-colors">
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <div>
+                  <h1 className="text-sm font-bold line-clamp-1 max-w-[200px]">{book.titulo}</h1>
+                  <p className="text-xs opacity-70">{locationStr || '...'}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button onClick={openNoteFromHeader} className="p-2 hover:opacity-70 rounded-full" title="Nota">
+                  <StickyNote className="w-5 h-5" />
+                </button>
+                <div className="relative">
+                  <button onClick={() => setShowSettingsMenu(!showSettingsMenu)} className={`p-2 hover:opacity-70 rounded-full ${showSettingsMenu ? 'bg-black/10' : ''}`}>
+                    <Type className="w-5 h-5" />
+                  </button>
+                  {showSettingsMenu && (
+                    <div className="absolute right-0 top-full mt-2 bg-white text-black p-4 rounded-xl shadow-xl border border-neutral-200 min-w-[220px] z-50 animate-in fade-in zoom-in-95">
+                      <div className="flex items-center justify-between mb-4 border-b pb-3 border-neutral-100">
+                        <button onClick={() => handleZoom('out')} className="p-2 hover:bg-neutral-100 rounded-lg"><ZoomOut className="w-4 h-4" /></button>
+                        <span className="font-bold text-sm">{fontSize}%</span>
+                        <button onClick={() => handleZoom('in')} className="p-2 hover:bg-neutral-100 rounded-lg"><ZoomIn className="w-4 h-4" /></button>
+                      </div>
+                      <p className="text-xs text-neutral-400 font-bold mb-2 uppercase">Tema</p>
+                      <div className="flex gap-3 justify-center">
+                        {Object.keys(THEMES).map(key => (
+                          <button key={key} onClick={() => changeTheme(key)} className={`w-10 h-10 rounded-full border-2 transition-transform hover:scale-105 ${currentTheme === key ? 'border-primary-500 ring-2 ring-primary-100' : 'border-neutral-200'}`} style={{ background: THEMES[key].style.body.background }} title={THEMES[key].name} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => setShowSidebar(true)} className="p-2 hover:opacity-70 rounded-full relative">
+                  <Menu className="w-5 h-5" />
+                  {notes.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-primary-500 rounded-full"></span>}
+                </button>
+              </div>
+            </header>
 
-            {/* 2. BOTÓN APARIENCIA (AA) */}
-            <div className="relative">
-              <button 
-                onClick={() => setShowSettingsMenu(!showSettingsMenu)} 
-                className={`p-2 hover:opacity-70 rounded-full ${showSettingsMenu ? 'bg-black/10' : ''}`}
-                title="Configuración de lectura"
-              >
-                <Type className="w-5 h-5" />
-              </button>
-
-              {showSettingsMenu && (
-                <div className="absolute right-0 top-full mt-2 bg-white text-black p-4 rounded-xl shadow-xl border border-neutral-200 min-w-[220px] z-50 animate-in fade-in zoom-in-95">
-                  {/* Zoom */}
-                  <div className="flex items-center justify-between mb-4 border-b pb-3 border-neutral-100">
-                    <button onClick={() => handleZoom('out')} className="p-2 hover:bg-neutral-100 rounded-lg"><ZoomOut className="w-4 h-4" /></button>
-                    <span className="font-bold text-sm">{fontSize}%</span>
-                    <button onClick={() => handleZoom('in')} className="p-2 hover:bg-neutral-100 rounded-lg"><ZoomIn className="w-4 h-4" /></button>
+            {/* READER AREA EPUB */}
+            <div className="flex-1 relative w-full h-full overflow-hidden flex justify-center">
+                <button onClick={handlePrev} className="absolute left-0 top-0 bottom-0 w-16 flex items-center justify-start pl-4 z-10 hover:bg-black/5 outline-none group">
+                  <ChevronLeft className="w-8 h-8 opacity-20 group-hover:opacity-50 transition-opacity" />
+                </button>
+                <div ref={epubContainerRef} className="w-full h-full max-w-4xl shadow-sm" />
+                <button onClick={handleNext} className="absolute right-0 top-0 bottom-0 w-16 flex items-center justify-end pr-4 z-10 hover:bg-black/5 outline-none group">
+                  <ChevronRight className="w-8 h-8 opacity-20 group-hover:opacity-50 transition-opacity" />
+                </button>
+                {selectionMenu.show && (
+                  <div className="fixed z-50 bg-neutral-900 text-white rounded-full px-4 py-2 flex items-center gap-3 shadow-2xl animate-in zoom-in-90" style={{ top: selectionMenu.y, left: selectionMenu.x, transform: 'translate(-50%, -100%)' }}>
+                    <button onClick={() => addHighlight('yellow')} className="w-5 h-5 rounded-full bg-yellow-400 hover:scale-125 border border-white/20" />
+                    <button onClick={() => addHighlight('green')} className="w-5 h-5 rounded-full bg-green-500 hover:scale-125 border border-white/20" />
+                    <button onClick={() => addHighlight('pink')} className="w-5 h-5 rounded-full bg-pink-500 hover:scale-125 border border-white/20" />
+                    <div className="w-px h-4 bg-white/20" />
+                    <button onClick={openNoteFromSelection} className="hover:text-primary-300 transition-colors flex items-center gap-1 text-sm font-medium"><StickyNote className="w-4 h-4" /> Nota</button>
+                    <div className="w-px h-4 bg-white/20" />
+                    <button onClick={() => setSelectionMenu(prev => ({...prev, show: false}))}><X className="w-4 h-4 text-neutral-400 hover:text-white" /></button>
                   </div>
-                  {/* Temas */}
-                  <p className="text-xs text-neutral-400 font-bold mb-2 uppercase">Tema</p>
-                  <div className="flex gap-3 justify-center">
-                    {Object.keys(THEMES).map(key => (
-                      <button 
-                        key={key} 
-                        onClick={() => changeTheme(key)}
-                        className={`w-10 h-10 rounded-full border-2 transition-transform hover:scale-105 ${currentTheme === key ? 'border-primary-500 ring-2 ring-primary-100' : 'border-neutral-200'}`}
-                        style={{ background: THEMES[key].style.body.background }}
-                        title={THEMES[key].name}
-                      />
+                )}
+            </div>
+
+            {/* SIDEBAR */}
+            {showSidebar && (
+                <div className="absolute inset-y-0 right-0 w-80 bg-white text-black border-l shadow-2xl z-40 flex flex-col animate-in slide-in-from-right">
+                  <div className="p-4 border-b flex justify-between items-center bg-neutral-50">
+                    <h2 className="font-bold">Anotaciones</h2>
+                    <button onClick={() => setShowSidebar(false)}><X className="w-5 h-5" /></button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    {notes.length === 0 && <p className="text-center text-neutral-400 text-sm mt-10">No hay notas ni subrayados.</p>}
+                    {notes.map(note => (
+                      <div key={note.id} onClick={() => { if(note.cfiRange) renditionRef.current?.display(note.cfiRange); setShowSidebar(false); }} className="p-3 bg-neutral-50 rounded border-l-4 cursor-pointer hover:bg-neutral-100 relative group" style={{ borderColor: note.color === 'green' ? '#4ade80' : note.color === 'pink' ? '#f472b6' : '#facc15' }}>
+                        <div className="flex justify-between items-start mb-1">
+                          <span className="text-xs font-bold text-neutral-500 uppercase">{note.type === 'NOTE' ? 'Nota' : 'Subrayado'}</span>
+                          {note.type === 'NOTE' && <StickyNote className="w-3 h-3 text-neutral-400" />}
+                        </div>
+                        <p className="text-sm line-clamp-3 text-neutral-800 italic">"{note.content}"</p>
+                        <div className="flex justify-between mt-2 border-t border-neutral-200 pt-2">
+                          <span className="text-xs text-neutral-400">{new Date(note.createdAt).toLocaleDateString()}</span>
+                          <button onClick={(e) => { e.stopPropagation(); deleteAnnotation(note.id, note.cfiRange); }}><Trash2 className="w-3 h-3 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity" /></button>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
-              )}
-            </div>
+            )}
             
-            {/* 3. BOTÓN SIDEBAR (Anotaciones) */}
-            <button 
-              onClick={() => setShowSidebar(true)} 
-              className="p-2 hover:opacity-70 rounded-full relative"
-            >
-              <Menu className="w-5 h-5" />
-              {notes.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-primary-500 rounded-full"></span>}
-            </button>
-          </div>
-        </header>
-
-        {/* READER AREA */}
-        <div className="flex-1 relative w-full h-full overflow-hidden flex justify-center">
-          {book.pdfFileUrl ? (
-            <AdobePdfViewer url={book.pdfFileUrl} />
-          ) : (
-            <>
-              {/* Navegación Izquierda */}
-              <button onClick={handlePrev} className="absolute left-0 top-0 bottom-0 w-16 flex items-center justify-start pl-4 z-10 hover:bg-black/5 outline-none group">
-                <ChevronLeft className="w-8 h-8 opacity-20 group-hover:opacity-50 transition-opacity" />
-              </button>
-              
-              {/* Contenedor EPUB */}
-              <div ref={epubContainerRef} className="w-full h-full max-w-4xl shadow-sm" />
-
-              {/* Navegación Derecha */}
-              <button onClick={handleNext} className="absolute right-0 top-0 bottom-0 w-16 flex items-center justify-end pr-4 z-10 hover:bg-black/5 outline-none group">
-                <ChevronRight className="w-8 h-8 opacity-20 group-hover:opacity-50 transition-opacity" />
-              </button>
-
-              {/* MENÚ FLOTANTE DE SELECCIÓN */}
-              {selectionMenu.show && (
-                <div 
-                  className="fixed z-50 bg-neutral-900 text-white rounded-full px-4 py-2 flex items-center gap-3 shadow-2xl animate-in zoom-in-90"
-                  style={{ top: selectionMenu.y, left: selectionMenu.x, transform: 'translate(-50%, -100%)' }}
-                >
-                  <button onClick={() => addHighlight('yellow')} className="w-5 h-5 rounded-full bg-yellow-400 hover:scale-125 border border-white/20" />
-                  <button onClick={() => addHighlight('green')} className="w-5 h-5 rounded-full bg-green-500 hover:scale-125 border border-white/20" />
-                  <button onClick={() => addHighlight('pink')} className="w-5 h-5 rounded-full bg-pink-500 hover:scale-125 border border-white/20" />
-                  
-                  <div className="w-px h-4 bg-white/20" />
-                  
-                  <button onClick={openNoteFromSelection} className="hover:text-primary-300 transition-colors flex items-center gap-1 text-sm font-medium">
-                    <StickyNote className="w-4 h-4" /> Nota
-                  </button>
-                  
-                  <div className="w-px h-4 bg-white/20" />
-                  
-                  <button onClick={() => setSelectionMenu(prev => ({...prev, show: false}))}>
-                    <X className="w-4 h-4 text-neutral-400 hover:text-white" />
-                  </button>
+            {/* Modal Nota */}
+            {showNoteModal && (
+              <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95">
+                  <h3 className="font-heading text-lg mb-4 text-neutral-900 flex items-center gap-2"><StickyNote className="w-5 h-5 text-primary-500" /> Agregar Nota</h3>
+                  <textarea className="w-full h-32 p-3 border border-neutral-200 rounded-lg font-ui text-neutral-800 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none" placeholder="Escribe tu pensamiento sobre esto..." value={noteContent} onChange={(e) => setNoteContent(e.target.value)} autoFocus />
+                  <div className="flex gap-3 mt-4">
+                    <button onClick={() => setShowNoteModal(false)} className="flex-1 py-2 text-neutral-600 hover:bg-neutral-100 rounded-lg transition-colors font-medium">Cancelar</button>
+                    <button onClick={saveNote} disabled={!noteContent.trim()} className="flex-1 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium disabled:opacity-50">Guardar</button>
+                  </div>
                 </div>
-              )}
-            </>
-          )}
-
-          {/* SIDEBAR */}
-          {showSidebar && (
-             <div className="absolute inset-y-0 right-0 w-80 bg-white text-black border-l shadow-2xl z-40 flex flex-col animate-in slide-in-from-right">
-               <div className="p-4 border-b flex justify-between items-center bg-neutral-50">
-                 <h2 className="font-bold">Anotaciones</h2>
-                 <button onClick={() => setShowSidebar(false)}><X className="w-5 h-5" /></button>
-               </div>
-               <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                 {notes.length === 0 && <p className="text-center text-neutral-400 text-sm mt-10">No hay notas ni subrayados.</p>}
-                 {notes.map(note => (
-                   <div key={note.id} onClick={() => { if(note.cfiRange) renditionRef.current?.display(note.cfiRange); setShowSidebar(false); }}
-                        className="p-3 bg-neutral-50 rounded border-l-4 cursor-pointer hover:bg-neutral-100 relative group"
-                        style={{ borderColor: note.color === 'green' ? '#4ade80' : note.color === 'pink' ? '#f472b6' : '#facc15' }}>
-                     
-                     <div className="flex justify-between items-start mb-1">
-                       <span className="text-xs font-bold text-neutral-500 uppercase">
-                         {note.type === 'NOTE' ? 'Nota' : 'Subrayado'}
-                       </span>
-                       {note.type === 'NOTE' && <StickyNote className="w-3 h-3 text-neutral-400" />}
-                     </div>
-
-                     <p className="text-sm line-clamp-3 text-neutral-800 italic">"{note.content}"</p>
-                     
-                     <div className="flex justify-between mt-2 border-t border-neutral-200 pt-2">
-                       <span className="text-xs text-neutral-400">{new Date(note.createdAt).toLocaleDateString()}</span>
-                       <button onClick={(e) => { e.stopPropagation(); deleteAnnotation(note.id, note.cfiRange); }}>
-                         <Trash2 className="w-3 h-3 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                       </button>
-                     </div>
-                   </div>
-                 ))}
-               </div>
-             </div>
-          )}
-        </div>
-
-        {/* MODAL PARA AGREGAR NOTA */}
-        {showNoteModal && (
-          <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95">
-              <h3 className="font-heading text-lg mb-4 text-neutral-900 flex items-center gap-2">
-                <StickyNote className="w-5 h-5 text-primary-500" />
-                Agregar Nota
-              </h3>
-              <textarea 
-                className="w-full h-32 p-3 border border-neutral-200 rounded-lg font-ui text-neutral-800 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
-                placeholder="Escribe tu pensamiento sobre esto..."
-                value={noteContent}
-                onChange={(e) => setNoteContent(e.target.value)}
-                autoFocus
-              />
-              <div className="flex gap-3 mt-4">
-                <button 
-                  onClick={() => setShowNoteModal(false)}
-                  className="flex-1 py-2 text-neutral-600 hover:bg-neutral-100 rounded-lg transition-colors font-medium"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={saveNote}
-                  disabled={!noteContent.trim()}
-                  className="flex-1 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium disabled:opacity-50"
-                >
-                  Guardar
-                </button>
               </div>
-            </div>
-          </div>
-        )}
-
-      </div>
+            )}
+         </div>
+      )}
     </>
   );
 }

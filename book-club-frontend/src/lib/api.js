@@ -171,7 +171,7 @@ export const uploadBook = async (formData) => {
           'Content-Type': 'multipart/form-data',
           'Authorization': `Bearer ${token}`,
         },
-        timeout: 60000, // 60 segundos
+        timeout: 300000, // 60 segundos
       }
     );
 

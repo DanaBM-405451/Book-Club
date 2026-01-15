@@ -672,20 +672,27 @@ const handleAddBook = async () => {
               </div>
 
               {/* Páginas */}
-              <div>
-                <label className="block text-sm font-ui font-medium text-neutral-700 mb-1">
-                  Número de páginas (opcional)
-                </label>
-                <input
-                  type="number"
-                  value={uploadData.pageCount}
-                  onChange={(e) =>
-                    setUploadData({ ...uploadData, pageCount: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border-2 border-neutral-300 rounded-lg font-ui focus:border-primary-500 focus:outline-none"
-                  placeholder="300"
-                />
-              </div>
+<div>
+  <label className="block text-sm font-ui font-medium text-neutral-700 mb-1">
+    Número de páginas {uploadData.pdf ? '(Opcional)' : ''}
+  </label>
+  <input
+    type="number"
+    value={uploadData.pageCount}
+    onChange={(e) =>
+      setUploadData({ ...uploadData, pageCount: e.target.value })
+    }
+    className="w-full px-4 py-2 border-2 border-neutral-300 rounded-lg font-ui focus:border-primary-500 focus:outline-none"
+    placeholder={uploadData.pdf ? "Dejar vacío para autodetectar" : "Ej: 300"}
+    disabled={loading} 
+  />
+  
+  {uploadData.pdf && (
+    <p className="text-xs text-green-600 mt-1 font-medium">
+      ✨ Si lo dejas vacío, contaremos las páginas del PDF automáticamente.
+    </p>
+  )}
+</div>
 
               {/* Portada */}
               <div>

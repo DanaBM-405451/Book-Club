@@ -1,3 +1,4 @@
+/*
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
@@ -126,7 +127,8 @@ export default function PDFReader({ url, title, bookId, initialPage = 1, onClose
 
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col">
-      {/* Carga del Script de Adobe */}
+      {/* Carga del Script de Adobe */
+      /*
       <Script 
         src="https://documentcloud.adobe.com/view-sdk/main.js" 
         strategy="lazyOnload" 
@@ -142,4 +144,4 @@ export default function PDFReader({ url, title, bookId, initialPage = 1, onClose
       <div id="adobe-pdf-viewer" ref={containerRef} className="flex-1 w-full h-full" />
     </div>
   );
-}
+}*/

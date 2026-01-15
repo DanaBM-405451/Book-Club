@@ -2,6 +2,7 @@
 
 const prisma = require('../config/database');
 const { uploadBookCover, uploadBookFile } = require('../utils/cloudinary.utils');
+const { extractPdfMetadata, extractEpubMetadata, cleanupTempFile, normalizeMetadata} = require('../utils/fileMetadata')
 const axios = require('axios'); // ✅ Necesario para comunicar servicios
 
 class BookService {
@@ -30,13 +31,40 @@ class BookService {
   /**
    * Crear nuevo libro y agregarlo a la biblioteca
    */
-  async createBook(userId, bookData, files = {}) {
-    // ... (Tu lógica de createBook existente se mantiene igual, simplificada aquí) ...
+  /*async createBook(userId, bookData, files = {}) {
+    console.log('📚 Service - Creating book');
+    console.log('📦 bookData:', bookData);
+    console.log('📁 files:', Object.keys(files));
+
+    // 1. VARIABLES PARA METADATOS AUTOMÁTICOS
+    let detectedMeta = { pageCount: 0, titulo: null, autor: null };
+
+    // 2. INSPECCIONAR ARCHIVOS 
+    if (files.pdf && files.pdf[0]) {
+        console.log("🔍 Analizando PDF...");
+        const pdfMeta = await extractPdfMetadata(files.pdf[0].buffer);
+        detectedMeta = { ...detectedMeta, ...pdfMeta };
+        console.log("✅ Datos detectados del PDF:", detectedMeta);
+    } 
+    
+    // (Opcional: lógica similar para EPUB si encuentras una librería robusta de buffer)
+
+    // 3. MEZCLAR DATOS (Prioridad: Manual > Automático)
+    // Si el usuario escribió algo, lo usamos. Si no, usamos lo detectado.
+    const tituloFinal = bookData.titulo || detectedMeta.titulo;
+    const autorFinal = bookData.autor || detectedMeta.autor;
+    
+    // Para las páginas, preferimos lo detectado si el manual es 0 o null
+    let pageCountFinal = bookData.pageCount ? parseInt(bookData.pageCount) : 0;
+    if (pageCountFinal === 0 && detectedMeta.pageCount > 0) {
+        pageCountFinal = detectedMeta.pageCount;
+    }
     
     // Validaciones...
-    if (!bookData.titulo) throw new Error('Título requerido');
+    //if (!bookData.titulo) throw new Error('Título requerido');
+    //if (!bookData.autor) throw new Error('El autor es requerido');
     
-    let coverImageUrl = null;
+    let coverImageUrl = bookData.coverImageUrl || null;
     let pdfFileUrl = null;
     let epubFileUrl = null;
 
@@ -45,12 +73,19 @@ class BookService {
       coverImageUrl = await uploadBookCover(files.cover[0].buffer, tempId);
     }
 
+    let pageCount = bookData.pageCount ? parseInt(bookData.pageCount) : 0;
+    
+    if (pageCount === 0) {
+        console.warn(" ADVERTENCIA: Creando libro sin número de páginas. La barra de progreso no funcionará.");
+    }
+
     const book = await prisma.book.create({
       data: {
         titulo: bookData.titulo,
         autor: bookData.autor,
         descripcion: bookData.descripcion,
-        pageCount: bookData.pageCount ? parseInt(bookData.pageCount) : null,
+        pageCount: pageCountFinal,
+        //pageCount: bookData.pageCount ? parseInt(bookData.pageCount) : null,
         categorias: bookData.categorias,
         idioma: bookData.idioma || 'es',
         isbn10: bookData.isbn10,
@@ -82,6 +117,7 @@ class BookService {
         bookId: book.id,
         totalPages: book.pageCount || 0,
         status: bookData.shelf || 'QUIERO_LEER',
+        currentPage: 0 // Explícito: empieza en página 0
       },
     });
 
@@ -91,8 +127,129 @@ class BookService {
     }
 
     return { book, userBook };
-  }
+  }*/
+async createBook(userId, bookData, files = {}) {
+    console.log('📚 Service - Creating book');
 
+    // =====================================================
+    // 1. EXTRAER METADATOS (usando PATH)
+    // =====================================================
+    let detectedMeta = { pageCount: 0, titulo: null, autor: null, description: null };
+
+
+
+    try {
+      if (files.pdf && files.pdf[0] && files.pdf[0].path) {
+        console.log("🔍 Analizando PDF...");
+        const pdfMeta = await extractPdfMetadata(files.pdf[0].path);
+        detectedMeta = normalizeMetadata(pdfMeta);
+        console.log("✅ Metadatos PDF:", detectedMeta);
+      } else if (files.epub && files.epub[0] && files.epub[0].path) {
+        console.log("🔍 Analizando EPUB...");
+        const epubMeta = await extractEpubMetadata(files.epub[0].path);
+        detectedMeta = normalizeMetadata(epubMeta);
+        console.log("✅ Metadatos EPUB:", detectedMeta);
+      }
+    } catch (error) {
+      console.error('❌ Error extrayendo metadatos:', error);
+    }
+
+    // =====================================================
+    // 2. COMBINAR DATOS
+    // =====================================================
+   const tituloFinal = (bookData.titulo && bookData.titulo.trim() !== "") 
+                    ? bookData.titulo 
+                    : (detectedMeta.titulo || "Sin título");
+
+const autorFinal = (bookData.autor && bookData.autor.trim() !== "") 
+                   ? bookData.autor 
+                   : (detectedMeta.autor || "Autor Desconocido");
+
+// Para las páginas, preferimos la detección si el manual es 0 o inválido
+let pageCountFinal = parseInt(bookData.pageCount);
+if (!pageCountFinal || pageCountFinal <= 0) {
+    pageCountFinal = detectedMeta.pageCount || 100; // Default de seguridad
+}
+
+    // =====================================================
+    // 3. SUBIR PORTADA
+    // =====================================================
+    let coverImageUrl = bookData.coverImageUrl || null;
+    
+    if (files.cover && files.cover[0]) {
+      const tempId = `temp_${Date.now()}`;
+      // ✅ uploadBookCover debe aceptar buffer O path
+      coverImageUrl = await uploadBookCover(files.cover[0].buffer, tempId);
+    }
+
+    // =====================================================
+    // 4. CREAR LIBRO
+    // =====================================================
+    const book = await prisma.book.create({
+      data: {
+        titulo: tituloFinal,
+        autor: autorFinal,
+        descripcion: bookData.descripcion || detectedMeta.descripcion || null,
+        pageCount: pageCountFinal,
+        categorias: bookData.categorias || null,
+        idioma: bookData.idioma || detectedMeta.idioma || 'es',
+        isbn10: bookData.isbn10 || null,
+        isbn13: bookData.isbn13 || null,
+        coverImageUrl,
+        publicacion: bookData.publicacion || null,
+        fechaPublicacion: bookData.fechaPublicacion || null,
+        source: bookData.source || 'MANUAL',
+        googleBookId: bookData.googleBookId || null,
+        uploadedByUserId: userId,
+        isPublic: true,
+        isDeleted: false,
+      },
+    });
+
+    // =====================================================
+    // 5. SUBIR ARCHIVOS PDF/EPUB
+    // =====================================================
+    let pdfFileUrl = null;
+    let epubFileUrl = null;
+
+    if (files.pdf && files.pdf[0]) {
+      pdfFileUrl = await uploadBookFile(files.pdf[0].path, book.id, 'pdf');
+      await prisma.book.update({ 
+        where: { id: book.id }, 
+        data: { pdfFileUrl } 
+      });
+      
+      // ✅ LIMPIAR archivo temporal después de subir
+      await cleanupTempFile(files.pdf[0].path);
+    }
+
+    if (files.epub && files.epub[0]) {
+      epubFileUrl = await uploadBookFile(files.epub[0].path, book.id, 'epub');
+      await prisma.book.update({ 
+        where: { id: book.id }, 
+        data: { epubFileUrl } 
+      });
+      
+      
+    }
+
+
+    // =====================================================
+    // 6. AGREGAR A BIBLIOTECA
+    // =====================================================
+    const userBook = await prisma.userBook.create({
+      data: {
+        userId,
+        bookId: book.id,
+        totalPages: pageCountFinal,
+        status: bookData.shelf || 'QUIERO_LEER',
+        currentPage: 0
+      },
+    });
+
+    return { book, userBook };
+  }
+  
   async getUserBooks(userId, filters = {}) {
     const { search, shelf, page = 1, limit = 20 } = filters;
     const where = { userId, book: { isDeleted: false } };
@@ -206,8 +363,8 @@ class BookService {
 
   /**
    * ✅ Actualizar progreso (Barra de lectura)
-   */
-  async updateProgress(userId, bookId, currentPage) {
+   *//*
+  async updateProgress(userId, bookId, currentPage, ) {
     const userBook = await this.getUserBook(userId, bookId);
     const wasCompleted = userBook.status === 'COMPLETADO';
 
@@ -237,7 +394,74 @@ class BookService {
 
     return updatedUserBook;
   }
+*/
 
+/**
+   * ✅ Actualizar progreso (Barra de lectura + TIEMPO)
+   */
+ async updateProgress(userId, bookId, currentPage, durationMinutes = 0) {
+    const userBook = await this.getUserBook(userId, bookId);
+    
+    // Detectamos si es EPUB (texto) o PDF (número)
+    // Si currentPage es string y empieza con 'epubcfi', es un EPUB
+    const isEpubCfi = typeof currentPage === 'string' && currentPage.startsWith('epubcfi');
+    
+    const updateData = {
+        lastReadAt: new Date(),
+    };
+
+    // 1. TIEMPO: Sumamos los minutos si vienen
+    if (durationMinutes && Number(durationMinutes) > 0) {
+        updateData.totalReadingTimeMinutes = {
+            increment: parseInt(durationMinutes)
+        };
+    }
+
+    // 2. POSICIÓN: Guardamos en el campo correcto según el tipo
+    if (isEpubCfi) {
+        // 📘 CASO EPUB -> Guardamos en 'lastReadPosition' (String)
+        updateData.lastReadPosition = currentPage;
+        
+        // ¡IMPORTANTE! No tocamos 'currentPage' (Int) para evitar el error de Prisma
+    } else {
+        // 📕 CASO PDF -> Guardamos en 'currentPage' (Int)
+        const pageNum = parseInt(currentPage);
+        
+        if (!isNaN(pageNum)) {
+            updateData.currentPage = pageNum;
+            
+            // Calculamos porcentaje solo para PDF (o si tuvieras totalCfi para epub)
+            const total = userBook.totalPages || 1;
+            const percent = ((pageNum / total) * 100).toFixed(2);
+            updateData.progressPercent = Math.min(100, parseFloat(percent));
+            
+            // Completar si llega al final
+            if (pageNum >= total) {
+                updateData.status = 'COMPLETADO';
+                updateData.finishedAt = new Date();
+                
+                // Notificar gamificación
+                if (userBook.status !== 'COMPLETADO') {
+                     await this._notifyGamificationBookFinished(userId, bookId);
+                }
+            }
+        }
+    }
+
+    // 3. Ejecutar Update
+    return await prisma.userBook.update({
+      where: { id: userBook.id },
+      data: updateData,
+    });
+
+    // ✅ NOTIFICACIÓN: Si llegó al final y no estaba completado antes
+    if (isFinished && !wasCompleted) {
+        await this._notifyGamificationBookFinished(userId, bookId);
+    }
+
+    return updatedUserBook;
+  }
+  
   /**
    * ✅ Cambiar estante (Drag & Drop o Dropdown)
    */
@@ -339,7 +563,6 @@ class BookService {
 
   // Modificamos el método para aceptar un objeto de filtros
 
-  // ... dentro de BookService
 
   async getGlobalLibraryStats({ startDate, endDate, genre } = {}) {
     console.log("📊 Calculando estadísticas de biblioteca...", { startDate, endDate, genre });
