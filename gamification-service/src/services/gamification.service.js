@@ -3,10 +3,275 @@
 const prisma = require('../config/database');
 
 class GamificationService {
+  
+  // --- MÉTODOS BASE ---
+
+  async createUserStats(userId) {
+    try {
+      return await prisma.userStats.create({ data: { userId } });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        return await prisma.userStats.findUnique({ where: { userId } });
+      }
+      throw error;
+    }
+  }
+
+  async getUserStats(userId) {
+    let stats = await prisma.userStats.findUnique({ where: { userId } });
+    if (!stats) stats = await this.createUserStats(userId);
+    return stats;
+  }
+
+  calculateLevel(totalXP, currentLevel = 1) {
+    let level = 1;
+    let xpRequired = 100;
+    let accumulatedXP = 0;
+
+    while (totalXP >= accumulatedXP + xpRequired) {
+      accumulatedXP += xpRequired;
+      level++;
+      xpRequired += 50;
+    }
+
+    const xpForNextLevel = accumulatedXP + xpRequired;
+    const xpInCurrentLevel = totalXP - accumulatedXP;
+    const progress = (xpInCurrentLevel / xpRequired) * 100;
+    const leveledUp = level > currentLevel;
+
+    return { level, xpForNextLevel, xpInCurrentLevel, progress, leveledUp };
+  }
+
+  // --- MÉTODOS DE ACTUALIZACIÓN ---
+
+  async updateStatsFromLibrary(userId, updates, reason) {
+    console.log('🎮 updateStatsFromLibrary:', { userId, updates, reason });
+
+    let stats = await this.getUserStats(userId);
+
+    // Calcular nuevos valores
+    const xpGained = updates.xpGained || 0;
+    const newTotalXP = stats.totalXP + xpGained;
+    const levelInfo = this.calculateLevel(newTotalXP, stats.currentLevel);
+
+    const newTotalPages = stats.totalPagesRead + (updates.pagesRead || 0);
+    const newTotalTime = stats.totalReadingTime + (updates.minutesRead || 0);
+    const newBooksRead = stats.totalBooksRead + (updates.booksCompleted || 0);
+
+    // --- Racha ---
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let newStreak = stats.currentStreak;
+    let newLongestStreak = stats.longestStreak;
+
+    // Detectar cualquier actividad
+    const hasActivity = (updates.pagesRead > 0) || (updates.minutesRead > 0) || (updates.booksCompleted > 0);
+
+    if (hasActivity) {
+      if (stats.lastReadDate) {
+        const lastRead = new Date(stats.lastReadDate);
+        lastRead.setHours(0, 0, 0, 0);
+        
+        const diffTime = Math.abs(today - lastRead);
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays === 1) {
+          newStreak++;
+          if (newStreak > newLongestStreak) newLongestStreak = newStreak;
+        } else if (diffDays > 1) {
+          newStreak = 1;
+        }
+      } else {
+        newStreak = 1;
+        newLongestStreak = 1;
+      }
+    }
+
+    // Update Stats
+    const updatedStats = await prisma.userStats.update({
+      where: { userId },
+      data: {
+        totalXP: newTotalXP,
+        currentLevel: levelInfo.level,
+        xpForNextLevel: levelInfo.xpForNextLevel,
+        totalPagesRead: newTotalPages,
+        totalReadingTime: newTotalTime,
+        totalBooksRead: newBooksRead,
+        currentStreak: newStreak,
+        longestStreak: newLongestStreak,
+        lastReadDate: hasActivity ? new Date() : stats.lastReadDate,
+      },
+    });
+
+    // Registrar actividad diaria
+    if (hasActivity) {
+      await this.recordDailyActivity(
+        userId, 
+        updates.pagesRead || 0, 
+        updates.minutesRead || 0, 
+        null
+      );
+    }
+
+    // Logros
+    const newAchievements = await this.checkAchievements(userId, updatedStats);
+
+    return {
+      stats: updatedStats,
+      leveledUp: levelInfo.leveledUp,
+      previousLevel: stats.currentLevel,
+      newLevel: levelInfo.level,
+      xpGained,
+      unlockedAchievements: newAchievements,
+    };
+  }
+
+  async addPagesRead(userId, pagesRead, bookId = null) {
+    return await this.updateStatsFromLibrary(
+        userId, 
+        { pagesRead, xpGained: pagesRead }, 
+        'Manual addPages'
+    );
+  }
+
+  /**
+   * ✅ MÉTODO BLINDADO: SQL RAW para MySQL
+   * Usa "ON DUPLICATE KEY UPDATE" para eliminar condiciones de carrera (Error P2002)
+   */
+  async recordDailyActivity(userId, pagesRead, minutesRead = 0, bookId = null) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    try {
+        // 1. INSERT ATÓMICO O UPDATE
+        // MySQL intentará insertar. Si la clave (userId + date) existe, hará el update.
+        // Todo en una sola operación de base de datos.
+        await prisma.$executeRaw`
+            INSERT INTO reading_activities (id, userId, date, pagesRead, minutesRead, booksRead, createdAt)
+            VALUES (UUID(), ${userId}, ${today}, ${pagesRead}, ${minutesRead}, '[]', NOW())
+            ON DUPLICATE KEY UPDATE
+                pagesRead = pagesRead + ${pagesRead},
+                minutesRead = minutesRead + ${minutesRead};
+        `;
+
+        // 2. ACTUALIZAR ARRAY DE LIBROS (Operación secundaria)
+        // Esto lo hacemos aparte porque manipular JSON strings en SQL Raw es propenso a errores
+        // y no es crítico para la concurrencia numérica.
+        if (bookId) {
+             const activity = await prisma.readingActivity.findUnique({
+                where: { userId_date: { userId, date: today } }
+             });
+             
+             let books = [];
+             try { books = JSON.parse(activity.booksRead); } catch(e){}
+             
+             if (!books.includes(bookId)) {
+                 books.push(bookId);
+                 await prisma.readingActivity.update({
+                     where: { id: activity.id },
+                     data: { booksRead: JSON.stringify(books) }
+                 });
+             }
+        }
+
+    } catch (error) {
+      console.error('❌ Error fatal SQL Raw:', error.message);
+    }
+  }
+
+  // --- LOGROS Y OTROS ---
+
+  async bookStarted(userId) {
+    const stats = await this.getUserStats(userId);
+    await prisma.userStats.update({
+      where: { userId },
+      data: { totalBooksStarted: stats.totalBooksStarted + 1 },
+    });
+    await this.checkAchievements(userId);
+  }
+
+  async bookFinished(userId, totalPages) {
+    await this.checkAchievements(userId);
+  }
+
+  async getUserAchievements(userId) {
+    return await prisma.userAchievement.findMany({
+      where: { userId },
+      include: { achievement: true },
+      orderBy: { unlockedAt: 'desc' },
+    });
+  }
+
+  async getAllAchievements() {
+    return await prisma.achievement.findMany({
+      orderBy: [{ category: 'asc' }, { rarity: 'asc' }],
+    });
+  }
+
+  async checkAchievements(userId, stats = null) {
+    if (!stats) stats = await this.getUserStats(userId);
+    const allAchievements = await this.getAllAchievements();
+    const unlockedIds = (await this.getUserAchievements(userId)).map(ua => ua.achievementId);
+    const newlyUnlocked = [];
+
+    for (const achievement of allAchievements) {
+      if (unlockedIds.includes(achievement.id)) continue;
+      let requirement;
+      try { requirement = JSON.parse(achievement.requirement); } catch (e) { continue; }
+      
+      let unlocked = false;
+      if (requirement.pagesRead && stats.totalPagesRead >= requirement.pagesRead) unlocked = true;
+      else if (requirement.booksRead && stats.totalBooksRead >= requirement.booksRead) unlocked = true;
+      else if (requirement.streak && stats.currentStreak >= requirement.streak) unlocked = true;
+      else if (requirement.level && stats.currentLevel >= requirement.level) unlocked = true;
+
+      if (unlocked) {
+        await prisma.userAchievement.create({
+          data: { userId, achievementId: achievement.id },
+        });
+        if (achievement.xpReward > 0) {
+          await prisma.userStats.update({
+            where: { userId },
+            data: { totalXP: stats.totalXP + achievement.xpReward },
+          });
+        }
+        newlyUnlocked.push(achievement);
+      }
+    }
+    return newlyUnlocked;
+  }
+
+  async getRecentActivity(userId, days = 30) {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+    return await prisma.readingActivity.findMany({
+      where: { userId, date: { gte: startDate } },
+      orderBy: { date: 'asc' },
+    });
+  }
+
+  async getLeaderboard(limit = 10, type = 'xp') {
+    let orderBy = { totalXP: 'desc' };
+    switch (type) {
+      case 'books': orderBy = { totalBooksRead: 'desc' }; break;
+      case 'pages': orderBy = { totalPagesRead: 'desc' }; break;
+      case 'streak': orderBy = { currentStreak: 'desc' }; break;
+    }
+    return await prisma.userStats.findMany({ take: limit, orderBy });
+  }
+}
+
+module.exports = new GamificationService();  
+
+//const prisma = require('../config/database');
+
+//class GamificationService {
   /**
    * Crear estadísticas iniciales para un usuario nuevo
    */
-  async createUserStats(userId) {
+ /* async createUserStats(userId) {
     const stats = await prisma.userStats.create({
       data: { userId },
     });
@@ -17,7 +282,7 @@ class GamificationService {
   /**
    * Obtener estadísticas del usuario
    */
-  async getUserStats(userId) {
+  /*async getUserStats(userId) {
     let stats = await prisma.userStats.findUnique({
       where: { userId },
     });
@@ -34,7 +299,7 @@ class GamificationService {
    * Calcular nivel según XP
    * Fórmula: Nivel 1 = 0-99 XP, Nivel 2 = 100-249 XP, etc.
    */
-  calculateLevel(totalXP, currentLevel = 1) {
+ /* calculateLevel(totalXP, currentLevel = 1) {
     let level = 1;
     let xpRequired = 100;
     let accumulatedXP = 0;
@@ -57,14 +322,14 @@ class GamificationService {
       xpForNextLevel,
       xpInCurrentLevel,
       progress,
-      leveledUp,  // ✅ AGREGAR
+      leveledUp,  //  AGREGAR
     };
   }
 
   /**
-   * ✅ NUEVO: Actualizar estadísticas desde library-service
+   *  NUEVO: Actualizar estadísticas desde library-service
    */
-  async updateStatsFromLibrary(userId, updates, reason) {
+  /*async updateStatsFromLibrary(userId, updates, reason) {
     console.log('🎮 updateStatsFromLibrary called:', { userId, updates, reason });
 
     // Obtener o crear stats
@@ -174,7 +439,7 @@ class GamificationService {
   /**
    * Agregar páginas leídas y calcular XP
    */
-  async addPagesRead(userId, pagesRead, bookId = null) {
+ /* async addPagesRead(userId, pagesRead, bookId = null) {
     const stats = await this.getUserStats(userId);
 
     // Calcular nuevo XP
@@ -248,7 +513,7 @@ class GamificationService {
   /**
    * Registrar actividad diaria
    */
-  async recordDailyActivity(userId, pagesRead, bookId) {
+  /*async recordDailyActivity(userId, pagesRead, bookId) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -301,7 +566,7 @@ class GamificationService {
   /**
    * Marcar libro como iniciado
    */
-  async bookStarted(userId) {
+/*  async bookStarted(userId) {
     const stats = await this.getUserStats(userId);
 
     await prisma.userStats.update({
@@ -317,7 +582,7 @@ class GamificationService {
   /**
    * Marcar libro como terminado
    */
-  async bookFinished(userId, totalPages) {
+/*  async bookFinished(userId, totalPages) {
     const stats = await this.getUserStats(userId);
 
     await prisma.userStats.update({
@@ -339,7 +604,7 @@ class GamificationService {
   /**
    * Obtener logros desbloqueados del usuario
    */
-  async getUserAchievements(userId) {
+ /* async getUserAchievements(userId) {
     const achievements = await prisma.userAchievement.findMany({
       where: { userId },
       include: {
@@ -356,7 +621,7 @@ class GamificationService {
   /**
    * Obtener todos los logros disponibles
    */
-  async getAllAchievements() {
+ /* async getAllAchievements() {
     const achievements = await prisma.achievement.findMany({
       orderBy: [{ category: 'asc' }, { rarity: 'asc' }],
     });
@@ -367,7 +632,7 @@ class GamificationService {
   /**
    * Verificar y desbloquear logros
    */
-  async checkAchievements(userId, stats = null) {
+ /* async checkAchievements(userId, stats = null) {
     if (!stats) {
       stats = await this.getUserStats(userId);
     }
@@ -432,7 +697,7 @@ class GamificationService {
   /**
    * Obtener actividad de los últimos N días
    */
-  async getRecentActivity(userId, days = 30) {
+ /* async getRecentActivity(userId, days = 30) {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     startDate.setHours(0, 0, 0, 0);
@@ -455,7 +720,7 @@ class GamificationService {
   /**
    * Obtener leaderboard (ranking de usuarios)
    */
-  async getLeaderboard(limit = 10, type = 'xp') {
+ /* async getLeaderboard(limit = 10, type = 'xp') {
     let orderBy = {};
 
     switch (type) {
@@ -484,4 +749,4 @@ class GamificationService {
   }
 }
 
-module.exports = new GamificationService();
+module.exports = new GamificationService();*/

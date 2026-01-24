@@ -3,7 +3,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Search, Upload, BookOpen, Loader2, Plus } from 'lucide-react';
+import { X, Search, Upload, BookOpen, Loader2, Plus, Info, ChevronUp, ChevronDown } from 'lucide-react';
 import axios from 'axios';
 import api, { uploadBook } from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -15,6 +15,18 @@ const SHELVES = [
   { value: 'EN_ESPERA', label: 'En espera', color: 'bg-yellow-100 text-yellow-700' },
   { value: 'ABANDONADO', label: 'Abandonado', color: 'bg-red-100 text-red-700' },
 ];
+
+// Función para mejorar la calidad de la portada de Google
+const getHighResCover = (url) => {
+  if (!url) return null;
+  let cleanUrl = url.replace('http:', 'https:').replace('&edge=curl', '');
+  cleanUrl = cleanUrl.replace(/&zoom=\d/, '');
+  return `${cleanUrl}&w=1000`;
+  // 1. Forzar HTTPS
+  // 2. Quitar el efecto de página doblada (&edge=curl)
+  // 3. Cambiar zoom=1 (thumbnail) a zoom=0 (máxima resolución disponible)
+  //return url.replace('http:', 'https:').replace('&edge=curl', '').replace('&zoom=1', '&zoom=0'); 
+};
 
 // ✅ Helper para obtener token desde auth-storage
 const getAuthToken = () => {
@@ -122,7 +134,7 @@ export default function AddBookModal({ isOpen, onClose, onBookAdded }) {
       const response = await axios.get(
         `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(
           googleQuery
-        )}&maxResults=10&langRestrict=es`
+        )}&maxResults=20&langRestrict=es`
       );
 
       if (response.data.items && response.data.items.length > 0) {
@@ -189,7 +201,10 @@ const handleAddBook = async () => {
         return;
       }
 
+      const info = selectedGoogleBook.volumeInfo;
       const volumeInfo = selectedGoogleBook.volumeInfo;
+
+      const highResImage = getHighResCover(info.imageLinks?.thumbnail);
 
       const payload = {
         titulo: volumeInfo.title,
@@ -209,7 +224,7 @@ const handleAddBook = async () => {
           volumeInfo.imageLinks?.thumbnail?.replace('http:', 'https:') || null,
         publicacion: volumeInfo.publisher || null,
         fechaPublicacion: volumeInfo.publishedDate || null,
-        source: 'GOOGLE_BOOKS', // ✅ Correcto
+        source: 'GOOGLE_BOOKS', 
         googleBookId: selectedGoogleBook.id,
         shelf: selectedShelf,
       };
@@ -225,14 +240,14 @@ const handleAddBook = async () => {
       toast.success('¡Libro agregado desde Google Books!');
     } else if (activeTab === 'upload') {
       // ✅ UPLOAD: Determinar source según el tipo de archivo
-      if (!uploadData.titulo?.trim()) {
+      /*if (!uploadData.titulo?.trim()) {
         toast.error('El título es requerido');
         return;
       }
       if (!uploadData.autor?.trim()) {
         toast.error('El autor es requerido');
         return;
-      }
+      }*/
       if (!uploadData.pdf && !uploadData.epub) {
         toast.error('Debes subir un archivo PDF o EPUB');
         return;
@@ -246,8 +261,10 @@ const handleAddBook = async () => {
 
       const formData = new FormData();
 
-      formData.append('titulo', uploadData.titulo.trim());
-      formData.append('autor', uploadData.autor.trim());
+      //formData.append('titulo', uploadData.titulo.trim());
+      //formData.append('autor', uploadData.autor.trim());
+      formData.append('titulo', uploadData.titulo ? uploadData.titulo.trim() : '');
+  formData.append('autor', uploadData.autor ? uploadData.autor.trim() : '');
       
       // ✅ IMPORTANTE: Usar 'PDF' o 'EPUB' según el archivo subido
       if (uploadData.pdf) {
@@ -356,7 +373,7 @@ const handleAddBook = async () => {
         <div className="flex-1 overflow-y-auto p-6">
           {/* Manual Tab */}
           {activeTab === 'manual' && (
-            <div className="space-y-4">
+            <div className="space-y-6">
               <div className="grid md:grid-cols-2 gap-4">
                 {/* Título */}
                 <div>
@@ -544,87 +561,128 @@ const handleAddBook = async () => {
             </div>
           )}
 
-          {/* Google Books Tab */}
+          {/* --- GOOGLE BOOKS TAB (MEJORADO) --- */}
           {activeTab === 'google' && (
-            <div className="space-y-4">
-              {/* Search */}
+            <div className="space-y-6">
               <form onSubmit={handleGoogleSearch} className="flex gap-2">
-                <input
-                  type="text"
-                  value={googleQuery}
-                  onChange={(e) => setGoogleQuery(e.target.value)}
-                  placeholder="Buscar por título o autor..."
-                  className="flex-1 px-4 py-2 border-2 border-neutral-300 rounded-lg font-ui focus:border-primary-500 focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  disabled={googleLoading}
-                  className="btn-primary"
-                >
-                  {googleLoading ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <Search className="w-5 h-5" />
-                  )}
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-3 w-5 h-5 text-neutral-400" />
+                    <input
+                    type="text"
+                    value={googleQuery}
+                    onChange={(e) => setGoogleQuery(e.target.value)}
+                    placeholder="Buscar por título, autor o ISBN..."
+                    className="w-full pl-10 pr-4 py-3 border-2 border-neutral-200 rounded-xl font-ui focus:border-primary-500 focus:outline-none transition-colors"
+                    />
+                </div>
+                <button type="submit" disabled={googleLoading} className="btn-primary px-6 rounded-xl">
+                  {googleLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Buscar'}
                 </button>
               </form>
 
-              {/* Results */}
               {googleResults.length > 0 && (
-                <div className="grid md:grid-cols-2 gap-4 max-h-96 overflow-y-auto">
+                <div className="grid gap-4">
                   {googleResults.map((book) => {
                     const info = book.volumeInfo;
                     const isSelected = selectedGoogleBook?.id === book.id;
+                    const highResThumb = getHighResCover(info.imageLinks?.thumbnail);
 
                     return (
-                      <button
+                      <div
                         key={book.id}
-                        onClick={() => setSelectedGoogleBook(book)}
-                        className={`flex gap-3 p-3 rounded-lg border-2 transition-all text-left ${
+                        onClick={() => setSelectedGoogleBook(isSelected ? null : book)}
+                        className={`group relative rounded-xl border-2 transition-all cursor-pointer overflow-hidden ${
                           isSelected
-                            ? 'border-primary-500 bg-primary-50'
-                            : 'border-neutral-200 hover:border-primary-300'
+                            ? 'border-primary-500 bg-primary-50 shadow-md'
+                            : 'border-neutral-100 hover:border-primary-300 hover:shadow-sm'
                         }`}
                       >
-                        {info.imageLinks?.thumbnail ? (
-                          <img
-                            src={info.imageLinks.thumbnail}
-                            alt={info.title}
-                            className="w-16 h-24 object-cover rounded"
-                          />
-                        ) : (
-                          <div className="w-16 h-24 bg-neutral-200 rounded flex items-center justify-center">
-                            <BookOpen className="w-8 h-8 text-neutral-400" />
-                          </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-heading text-sm line-clamp-2">
-                            {info.title}
-                          </h3>
-                          <p className="text-sm text-neutral-600 font-ui">
-                            {info.authors?.join(', ') || 'Autor desconocido'}
-                          </p>
-                          {info.publishedDate && (
-                            <p className="text-xs text-neutral-500 font-ui mt-1">
-                              {info.publishedDate.split('-')[0]}
-                            </p>
-                          )}
+                        <div className="flex p-4 gap-4">
+                            {/* Portada */}
+                            <div className="flex-shrink-0">
+                                {info.imageLinks?.thumbnail ? (
+                                    <img
+                                    // Usamos la imagen mejorada si está seleccionado, sino la normal para la lista
+                                    src={isSelected ? highResThumb : info.imageLinks.thumbnail}
+                                    alt={info.title}
+                                    className={`object-cover rounded-lg shadow-sm transition-all duration-300 ${
+                                        isSelected ? 'w-32 h-48' : 'w-16 h-24'
+                                    }`}
+                                    />
+                                ) : (
+                                    <div className={`bg-neutral-200 rounded-lg flex items-center justify-center text-neutral-400 ${isSelected ? 'w-32 h-48' : 'w-16 h-24'}`}>
+                                        <BookOpen className="w-8 h-8" />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Info Principal */}
+                            <div className="flex-1 min-w-0 flex flex-col justify-between">
+                                <div>
+                                    <h3 className={`font-heading leading-tight mb-1 ${isSelected ? 'text-xl text-primary-900' : 'text-base text-neutral-800'}`}>
+                                        {info.title}
+                                    </h3>
+                                    <p className="text-sm text-neutral-600 font-ui mb-2">
+                                        {info.authors?.join(', ') || 'Autor desconocido'}
+                                    </p>
+                                    
+                                    {/* Badges de info */}
+                                    <div className="flex flex-wrap gap-2 mb-2">
+                                        {info.publishedDate && (
+                                            <span className="text-xs bg-white border border-neutral-200 px-2 py-1 rounded text-neutral-500">
+                                                {info.publishedDate.split('-')[0]}
+                                            </span>
+                                        )}
+                                        {info.pageCount && (
+                                            <span className="text-xs bg-white border border-neutral-200 px-2 py-1 rounded text-neutral-500">
+                                                {info.pageCount} págs
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Indicador de expansión */}
+                                <div className="text-xs font-medium text-primary-600 flex items-center mt-2">
+                                    {isSelected ? (
+                                        <span className="flex items-center"><ChevronUp className="w-4 h-4 mr-1"/> Ocultar detalles</span>
+                                    ) : (
+                                        <span className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity"><Info className="w-4 h-4 mr-1"/> Ver detalles</span>
+                                    )}
+                                </div>
+                            </div>
                         </div>
-                      </button>
+
+                        {/* ✅ NUEVO: SECCIÓN DE SINOPSIS EXPANDIBLE */}
+                        {isSelected && (
+                            <div className="px-4 pb-4 pt-0 animate-in fade-in slide-in-from-top-2 duration-200">
+                                <div className="bg-white p-4 rounded-lg border border-primary-100 text-sm text-neutral-700 font-ui leading-relaxed max-h-60 overflow-y-auto custom-scrollbar">
+                                    <h4 className="font-bold text-primary-800 mb-2 flex items-center gap-2">
+                                        <BookOpen className="w-4 h-4"/> Sinopsis
+                                    </h4>
+                                    {info.description ? (
+                                        <p>{info.description}</p>
+                                    ) : (
+                                        <p className="italic text-neutral-400">No hay descripción disponible para este libro.</p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
               )}
             </div>
           )}
+           
 
           {/* Upload Tab */}
           {activeTab === 'upload' && (
-            <div className="space-y-4">
+            <div className="space-y-6">
               {/* Título */}
               <div>
                 <label className="block text-sm font-ui font-medium text-neutral-700 mb-1">
-                  Título *
+                  Título 
                 </label>
                 <input
                   type="text"
@@ -641,7 +699,7 @@ const handleAddBook = async () => {
               {/* Autor */}
               <div>
                 <label className="block text-sm font-ui font-medium text-neutral-700 mb-1">
-                  Autor *
+                  Autor 
                 </label>
                 <input
                   type="text"
@@ -821,7 +879,7 @@ const handleAddBook = async () => {
                 (activeTab === 'manual' && (!manualData.titulo || !manualData.autor)) ||
                 (activeTab === 'google' && !selectedGoogleBook) ||
                 (activeTab === 'upload' &&
-                  (!uploadData.titulo || !uploadData.autor || (!uploadData.pdf && !uploadData.epub)))
+                  ((!uploadData.pdf && !uploadData.epub))) //!uploadData.titulo || !uploadData.autor ||
               }
               className="btn-primary"
             >

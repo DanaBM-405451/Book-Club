@@ -51,7 +51,8 @@ router.get('/books/:id', bookController.getUserBook);
 // ✏️ Editar libro
 router.put(
   '/books/:id', 
-  upload.fields([{ name: 'cover', maxCount: 1 }]), 
+  //upload.fields([{ name: 'cover', maxCount: 1 }]), 
+  upload.fields([{ name: 'cover', maxCount: 1 }]),
   bookController.updateBook
 );
 

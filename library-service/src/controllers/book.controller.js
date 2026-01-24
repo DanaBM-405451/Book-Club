@@ -41,6 +41,9 @@ class BookController {
   // 4. Actualizar libro
   async updateBook(req, res, next) {
     try {
+      console.log("🔍 DEBUG CONTROLLER - Archivos recibidos:", req.files); 
+      console.log("🔍 [DIAGNÓSTICO] Headers Content-Type:", req.headers['content-type']);
+      console.log("🔍 [DIAGNÓSTICO] Files:", req.files);
       const userId = req.user.userId || req.user.id;
       const files = req.files || {};
       const book = await bookService.updateBook(userId, req.params.id, req.body, files);
@@ -73,24 +76,24 @@ class BookController {
   }
 
   
-  async updateProgress(req, res, next) {
+ async updateProgress(req, res, next) {
     try {
-      const userId = req.user.userId || req.user.id;
+      // ✅ AHORA RECIBIMOS 'lastReadPosition' (El CFI del EPUB)
+      const { currentPage, durationMinutes, pagesRead, lastReadPosition } = req.body; 
       const { id } = req.params;
-      
-      // Extraemos los datos del body
-      const { currentPage, durationMinutes } = req.body;
+      const userId = req.user.userId || req.user.id; // Aseguramos compatibilidad de ID
 
-      console.log(`⏱️ Update: Libro ${id}, Posición ${currentPage}, Tiempo ${durationMinutes}min`);
+      // Pasamos todos los datos al servicio
+      const result = await bookService.updateProgress(
+          userId, 
+          id, 
+          currentPage,      // Número entero (para la barra %)
+          durationMinutes, 
+          pagesRead,        // Delta para gamificación
+          lastReadPosition  // String CFI (para volver al punto exacto)
+      );
 
-      
-      const userBook = await bookService.updateProgress(userId, id, currentPage, durationMinutes);
-
-      res.json({
-        success: true,
-        message: 'Progreso actualizado',
-        data: { userBook },
-      });
+      res.json({ success: true, data: { userBook: result } });
     } catch (error) {
       next(error);
     }

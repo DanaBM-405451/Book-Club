@@ -2,24 +2,39 @@
 
 import { useState, useEffect } from 'react';
 import { X, Upload, Save, Loader2 } from 'lucide-react';
-import Modal from '@/components/ui/Modal'; // Asumo que tienes este componente del paso anterior
-import api from '@/lib/api';
+import Modal from '@/components/ui/Modal';
+import axios from 'axios'; // ✅ Usamos axios directo
 import toast from 'react-hot-toast';
+
+// ✅ 1. DEFINICIÓN SEGURA (FUERA DEL COMPONENTE)
+// Esto evita el error "ReferenceError: getAuthToken is not defined"
+const getAuthToken = () => {
+  if (typeof window === 'undefined') return null;
+  const storage = localStorage.getItem('auth-storage');
+  if (!storage) return null;
+  try {
+    const { state } = JSON.parse(storage);
+    return state?.accessToken || null;
+  } catch (error) {
+    console.error("Error al leer token:", error);
+    return null;
+  }
+};
 
 export default function EditBookModal({ isOpen, onClose, book, userBook, onBookUpdated }) {
   const [loading, setLoading] = useState(false);
+  
   const [formData, setFormData] = useState({
     titulo: '',
     autor: '',
     descripcion: '',
-    tags: '', // Etiquetas separadas por coma
+    tags: '',
     status: 'QUIERO_LEER',
   });
   
   const [coverFile, setCoverFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
 
-  // Cargar datos cuando se abre el modal
   useEffect(() => {
     if (book && userBook && isOpen) {
       setFormData({
@@ -42,12 +57,11 @@ export default function EditBookModal({ isOpen, onClose, book, userBook, onBookU
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+      if (file.size > 5 * 1024 * 1024) { 
         toast.error('La imagen es muy pesada (máx 5MB)');
         return;
       }
       setCoverFile(file);
-      // Crear URL temporal para previsualización
       const objectUrl = URL.createObjectURL(file);
       setPreviewUrl(objectUrl);
     }
@@ -58,29 +72,47 @@ export default function EditBookModal({ isOpen, onClose, book, userBook, onBookU
     setLoading(true);
 
     try {
-      const data = new FormData();
-      
-      // Datos básicos
-      data.append('titulo', formData.titulo);
-      data.append('autor', formData.autor);
-      data.append('descripcion', formData.descripcion);
-      data.append('tags', formData.tags);
-      data.append('status', formData.status);
-
-      // Si hay nueva imagen, la agregamos
-      if (coverFile) {
-        data.append('cover', coverFile);
+      // 1. Validar Token
+      const token = getAuthToken();
+      if (!token) {
+        toast.error('No hay sesión activa. Recarga la página.');
+        setLoading(false);
+        return;
       }
 
-      // NOTA: Asegúrate de que tu backend acepte PUT multipart/form-data en esta ruta
-     /* await api.put(`/api/library/books/${userBook.id}`, data, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });*/
-      await api.put(`/api/library/books/${book.id}`, data);
+      // 2. Preparar FormData
+      const submitData = new FormData();
+      submitData.append('titulo', formData.titulo || '');
+      submitData.append('autor', formData.autor || '');
+      submitData.append('descripcion', formData.descripcion || '');
+      submitData.append('tags', formData.tags || '');
+      submitData.append('status', formData.status || 'QUIERO_LEER');
+
+      // Solo adjuntar archivo si el usuario subió uno nuevo
+      if (coverFile) {
+        console.log("📸 Enviando nueva imagen:", coverFile.name);
+        submitData.append('cover', coverFile);
+      }
+
+      // 3. ✅ USAMOS EL GATEWAY (COMO DEBE SER)
+      // Usamos la variable de entorno del Gateway (o default 4000)
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+      console.log(`🚀 Enviando al Gateway: ${API_URL}/api/library/books/${book.id}`);
+
+      // 4. Petición con Axios (Mantenemos axios directo y Content-Type: undefined)
+      await axios.put(`${API_URL}/api/library/books/${book.id}`, submitData, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': undefined 
+        }
+      });        
 
       toast.success('Libro actualizado correctamente');
-      onBookUpdated(); // Recargar datos en la página padre
+      
+      if (onBookUpdated) await onBookUpdated();
       onClose();
+      
     } catch (error) {
       console.error('Error updating book:', error);
       toast.error('Error al actualizar el libro');
@@ -94,7 +126,7 @@ export default function EditBookModal({ isOpen, onClose, book, userBook, onBookU
       <form onSubmit={handleSubmit} className="space-y-6">
         
         <div className="grid md:grid-cols-3 gap-6">
-          {/* Columna Izquierda: Portada */}
+          {/* Portada */}
           <div className="md:col-span-1">
             <label className="block text-sm font-ui font-medium text-neutral-700 mb-2">
               Portada
@@ -112,7 +144,6 @@ export default function EditBookModal({ isOpen, onClose, book, userBook, onBookU
                 </div>
               )}
               
-              {/* Overlay para subir */}
               <label className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-white">
                 <Upload className="w-8 h-8 mb-2" />
                 <span className="text-xs font-ui">Cambiar imagen</span>
@@ -126,7 +157,7 @@ export default function EditBookModal({ isOpen, onClose, book, userBook, onBookU
             </div>
           </div>
 
-          {/* Columna Derecha: Datos */}
+          {/* Datos */}
           <div className="md:col-span-2 space-y-4">
             <div>
               <label className="label-field">Título</label>

@@ -3,14 +3,14 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { 
-  ArrowLeft, Menu, X, Trash2, Loader2, ChevronLeft, ChevronRight, Palette, 
-  ZoomIn, ZoomOut, StickyNote, Type, BookmarkPlus
+  ArrowLeft, Menu, X, Trash2, Loader2, ChevronLeft, ChevronRight, 
+  ZoomIn, ZoomOut, StickyNote, Type 
 } from 'lucide-react';
 import api from '@/lib/api';
 import toast, { Toaster } from 'react-hot-toast';
 import AdobePdfViewer from '@/components/books/AdobePdfViewer';
 
-// ✅ 1. RESTAURAMOS LA CONSTANTE 'THEMES' (Esto arregla el crash)
+// --- CONSTANTES GLOBALES (Fuera del componente) ---
 const THEMES = {
   light: {
     name: 'Claro',
@@ -33,48 +33,47 @@ export default function ReaderPage() {
   const router = useRouter();
   const params = useParams();
   
-  // --- ESTADOS DE DATOS ---
-  const [book, setBook] = useState(null);
-  const [notes, setNotes] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // --- REFS (SIEMPRE DENTRO DEL COMPONENTE) ---
+  const currentVirtualPageRef = useRef(0); // Página actual calculada
+  const lastSavedPageRef = useRef(0);      // Última página guardada en BD
+  const startTimeRef = useRef(Date.now()); // Tiempo de inicio de sesión
+  const lastPageRef = useRef(null);        // Última posición (CFI o número)
   
-  // --- UI LECTOR ---
-  const [showSidebar, setShowSidebar] = useState(false);
-  const [locationStr, setLocationStr] = useState('');
-  
-  // Menú Flotante de Selección
-  const [selectionMenu, setSelectionMenu] = useState({ show: false, x: 0, y: 0, cfiRange: null, text: '' });
-  
-  // Modal de Nota
-  const [showNoteModal, setShowNoteModal] = useState(false);
-  const [noteContent, setNoteContent] = useState('');
-  const [currentCfiForNote, setCurrentCfiForNote] = useState(null);
-
-  // Configuración de Lectura
-  const [currentTheme, setCurrentTheme] = useState('light');
-  const [fontSize, setFontSize] = useState(100);
-  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
-
   // Refs para EPUB
   const epubContainerRef = useRef(null); 
   const renditionRef = useRef(null);
   const bookRef = useRef(null);
   const isRendered = useRef(false);
 
-  // ✅ 2. REFS PARA EL TIEMPO Y PROGRESO (Nuevo)
-  const startTimeRef = useRef(Date.now());
-  const lastPageRef = useRef(null);
+  // --- ESTADOS ---
+  const [book, setBook] = useState(null);
+  const [notes, setNotes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  // UI Lector
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [locationStr, setLocationStr] = useState('');
+  const [selectionMenu, setSelectionMenu] = useState({ show: false, x: 0, y: 0, cfiRange: null, text: '' });
+  
+  // Modal Nota
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [noteContent, setNoteContent] = useState('');
+  const [currentCfiForNote, setCurrentCfiForNote] = useState(null);
+
+  // Configuración
+  const [currentTheme, setCurrentTheme] = useState('light');
+  const [fontSize, setFontSize] = useState(100);
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
 
   // 1. CARGA INICIAL
   useEffect(() => { loadBookData(); }, []);
 
-  // Guardar progreso al salir (Desmontar componente)
+  // 2. GUARDAR AL SALIR
   useEffect(() => {
     return () => {
       if (lastPageRef.current) {
-        saveProgress(lastPageRef.current, true); // Forzar guardado al salir
+        saveProgress(lastPageRef.current, true); // Forzar guardado al desmontar
       }
-      // Limpieza EPUB
       if (bookRef.current) {
         bookRef.current.destroy();
         isRendered.current = false;
@@ -82,13 +81,14 @@ export default function ReaderPage() {
     };
   }, []);
 
-  // 2. INICIAR EPUB (Solo si es epub)
+  // 3. INICIAR EPUB
   useEffect(() => {
     if (book?.epubFileUrl && epubContainerRef.current && !isRendered.current) {
       setTimeout(() => initEpub(), 200);
     }
   }, [book?.epubFileUrl]);
 
+  // --- FUNCIÓN DE CARGA DE DATOS ---
   const loadBookData = async () => {
     try {
       setLoading(true);
@@ -97,16 +97,22 @@ export default function ReaderPage() {
         api.get(`/api/library/books/${params.id}/notes`)
       ]);
       
+      // ✅ Definir correctamente bookData
       const bookData = bookRes.data.data.userBook.book;
-      // Inyectamos userBook dentro de book para tener el progreso
+      // Inyectar userBook dentro de book
       bookData.userBook = bookRes.data.data.userBook;
       
       setBook(bookData);
       setNotes(notesRes.data.data.notes || []);
 
-      // Inicializar refs
+      // Inicializar Refs
       startTimeRef.current = Date.now();
       lastPageRef.current = bookData.userBook?.currentPage || (bookData.epubFileUrl ? null : 1);
+
+      // Inicializar contadores de páginas
+      const initialPage = bookData.userBook?.currentPage || 0;
+      currentVirtualPageRef.current = initialPage;
+      lastSavedPageRef.current = initialPage;
 
     } catch (error) {
       console.error(error);
@@ -116,75 +122,87 @@ export default function ReaderPage() {
     }
   };
 
-  // ✅ 3. FUNCIÓN INTELIGENTE DE GUARDADO (Unifica PDF y EPUB + Tiempo)
-  /*const saveProgress = async (pageOrCfi, forceSave = false) => {
-    // Actualizar ref local siempre
-    lastPageRef.current = pageOrCfi;
-
-    const now = Date.now();
-    const timeDiff = now - startTimeRef.current;
-    const minutes = Math.floor(timeDiff / 1000 / 60);
-
-    // Guardar si pasó 1 minuto O si forzamos el guardado (al salir) O si es un cambio significativo
-    if (minutes >= 1 || forceSave) {
-        try {
-            console.log(`💾 Guardando: Ubicación ${pageOrCfi} - Tiempo: ${minutes} min`);
-            
-            // Detectar si es EPUB por el formato del CFI
-            const isEpub = typeof pageOrCfi === 'string' && pageOrCfi.startsWith('epubcfi');
-
-            await api.put(`/api/library/books/${params.id}/progress`, { 
-                currentPage: pageOrCfi, 
-                durationMinutes: minutes, // ✅ Enviamos tiempo al backend
-                isEpub: isEpub
-            });
-
-            // Reiniciar contador de tiempo para no sumar doble
-            startTimeRef.current = Date.now();
-        } catch (e) {
-            console.error("Error guardando progreso", e);
-        }
-    }
-  };*/
-
+  // --- FUNCIÓN DE GUARDADO INTELIGENTE ---
   const saveProgress = async (pageOrCfi, forceSave = false) => {
     lastPageRef.current = pageOrCfi;
 
     const now = Date.now();
     const timeDiff = now - startTimeRef.current;
-    const minutes = Math.floor(timeDiff / 1000 / 60);
+    
+    // Calcular minutos (Mínimo 1 si pasaron > 30s)
+    let minutes = Math.floor(timeDiff / 1000 / 60);
+    if (minutes === 0 && timeDiff > 30000) minutes = 1;
 
-    // Guardar si pasó 1 minuto O si forzamos el guardado
-    if (minutes >= 1 || forceSave) {
+    // --- CÁLCULO DE PÁGINAS (CON FALLBACK) ---
+    let pagesReadPayload = 0;
+    const isEpub = typeof pageOrCfi === 'string' && pageOrCfi.startsWith('epubcfi');
+    let currentIntPage = 0;
+
+    if (isEpub) {
+        currentIntPage = currentVirtualPageRef.current;
+        const diff = currentIntPage - lastSavedPageRef.current;
+      if (diff > 0) {
+            pagesReadPayload = diff;
+        } else if (minutes > 0) {
+            // 🔥 TRUCO: Si pasó tiempo pero no cambió la página virtual,
+            // sumamos minutos como páginas para que cuente la racha.
+            pagesReadPayload = minutes; 
+            // Avanzamos artificialmente la referencia "lastSaved" para la próxima vez
+            lastSavedPageRef.current = currentVirtualPageRef.current + pagesReadPayload;
+        }
+    } else {
+        // Lógica PDF
+        currentIntPage = parseInt(pageOrCfi);
+        const diff = currentIntPage - lastSavedPageRef.current;
+        if (diff > 0) pagesReadPayload = diff;
+        currentVirtualPageRef.current = currentIntPage;
+    }
+
+    // Guardar si hay actividad
+    if (minutes >= 1 || pagesReadPayload > 0 || forceSave) {
         try {
-            console.log(`💾 Guardando: ${pageOrCfi} (${minutes} min)`);
+            console.log(`💾 Guardando: ${minutes} min, +${pagesReadPayload} págs. (Pos: ${currentIntPage})`);
             
-            const isEpub = typeof pageOrCfi === 'string' && pageOrCfi.startsWith('epubcfi');
-            
-            // Construimos el payload
             const payload = { 
-                currentPage: pageOrCfi,
+                currentPage: currentIntPage, // Entero para barra de progreso
+                lastReadPosition: isEpub ? pageOrCfi : null, // CFI para volver al punto
+                durationMinutes: minutes,
+                pagesRead: pagesReadPayload, // Para Gamificación
                 isEpub
             };
 
-            // Solo agregamos minutos si son mayores a 0
-            if (minutes > 0) {
-                payload.durationMinutes = minutes;
+            const response = await api.put(`/api/library/books/${params.id}/progress`, payload);
+
+            if (response.data && response.data.data && response.data.data.userBook) {
+                const updatedUserBook = response.data.data.userBook;
+                
+                // Actualizar estado visual
+                setBook(prevBook => ({
+                    ...prevBook,
+                    userBook: {
+                        ...prevBook.userBook,
+                        totalReadingTimeMinutes: updatedUserBook.totalReadingTimeMinutes,
+                        progressPercent: updatedUserBook.progressPercent,
+                        currentPage: updatedUserBook.currentPage,
+                        lastReadPosition: updatedUserBook.lastReadPosition
+                    }
+                }));
+
+                // Actualizar referencias si el guardado fue exitoso
+                if (pagesReadPayload > 0 && !isEpub) lastSavedPageRef.current = currentIntPage;
+                // Nota: En EPUB ya actualizamos lastSavedPageRef arriba en el truco o por diff
+                
+                if (minutes > 0) startTimeRef.current = Date.now();
             }
-
-            await api.put(`/api/library/books/${params.id}/progress`, payload);
-
-            // Reiniciar contador SOLO si enviamos tiempo
-            if (minutes > 0) startTimeRef.current = Date.now();
-
         } catch (e) {
             console.error("Error guardando progreso", e);
         }
     }
   };
 
- const initEpub = async () => {
-   if (!epubContainerRef.current) return;
+  // --- LÓGICA EPUB ---
+  const initEpub = async () => {
+    if (!epubContainerRef.current) return;
 
     try {
       const ePub = (await import('epubjs')).default;
@@ -195,12 +213,11 @@ export default function ReaderPage() {
       bookRef.current = epubBook;
       await epubBook.ready;
 
-      // 🛡️ DOBLE PROTECCIÓN: Verificamos de nuevo antes de usarlo
       if (!epubContainerRef.current) return;
 
       const { clientWidth, clientHeight } = epubContainerRef.current;
 
-      // 1. PRIMERO DEFINIMOS RENDITION
+      // Renderizar
       const rendition = epubBook.renderTo(epubContainerRef.current, {
         width: clientWidth,
         height: clientHeight,
@@ -209,44 +226,54 @@ export default function ReaderPage() {
         allowScriptedContent: true,
       });
 
-      // 2. GUARDAMOS LA REFERENCIA
       renditionRef.current = rendition;
       isRendered.current = true;
 
-      // 3. REGISTRAMOS TEMAS
+      // Temas
       rendition.themes.register('light', THEMES.light.style);
       rendition.themes.register('sepia', THEMES.sepia.style);
       rendition.themes.register('dark', THEMES.dark.style);
-      rendition.themes.select(currentTheme); // Usar el tema actual del estado
+      rendition.themes.select(currentTheme);
       rendition.themes.fontSize(`${fontSize}%`);
 
-      // 4. MOSTRAR PÁGINA (Recuperar progreso)
-      // Buscamos en lastReadPosition (EPUB) o currentPage (fallback)
+      // Mostrar página guardada
       const savedCfi = book.userBook?.lastReadPosition || book.userBook?.currentPage;
-      
       if (savedCfi && typeof savedCfi === 'string' && savedCfi.startsWith('epubcfi')) {
         await rendition.display(savedCfi);
       } else {
         await rendition.display();
       }
 
-      // 5. REGISTRAR EVENTOS (Ahora sí, porque rendition ya existe)
+      // 5. REGISTRAR EVENTOS
       rendition.on('relocated', (location) => {
         setSelectionMenu(prev => ({ ...prev, show: false }));
+        
         if (location.start) {
-          const percent = Math.floor(location.start.percentage * 100);
-          setLocationStr(`${percent}%`);
-          // Guardar progreso
+          const percentage = location.start.percentage;
+          const percentDisplay = Math.floor(percentage * 100);
+          setLocationStr(`${percentDisplay}%`);
+
+          // ✅ CÁLCULO PROTEGIDO
+          // Solo usamos el cálculo automático si es MAYOR que el manual.
+          // Esto evita que si epub.js se confunde y dice "0%", nos borre el avance manual.
+          const totalPages = book.pageCount || 100;
+          const calculatedPage = Math.floor(percentage * totalPages);
+
+          if (calculatedPage > currentVirtualPageRef.current) {
+             currentVirtualPageRef.current = calculatedPage;
+          }
+
+          // Guardamos (esto asegura que si avanzas con scroll/swipe también guarde)
           saveProgress(location.start.cfi);
         }
       });
 
+      // Menú de selección (highlight)
       rendition.on('selected', (cfiRange, contents) => {
         const selection = contents.window.getSelection();
         if (selection.toString().length > 0) {
           const range = selection.getRangeAt(0);
           const rect = range.getBoundingClientRect();
-          // Aseguramos que el iframe existe antes de leer su rect
           const iframe = epubContainerRef.current.querySelector('iframe');
           if (iframe) {
               const iframeRect = iframe.getBoundingClientRect();
@@ -266,7 +293,7 @@ export default function ReaderPage() {
         setShowSettingsMenu(false);
       });
 
-      // 6. INYECTAR ESTILOS CSS
+      // Estilos inyectados
       rendition.hooks.content.register((contents) => {
         const style = contents.document.createElement('style');
         style.innerHTML = `
@@ -279,13 +306,14 @@ export default function ReaderPage() {
         `;
         contents.document.head.appendChild(style);
         
+        // Teclas flecha
         contents.document.addEventListener('keydown', (e) => {
           if (e.key === 'ArrowLeft') rendition.prev();
           if (e.key === 'ArrowRight') rendition.next();
         });
       });
 
-      // 7. PINTAR NOTAS
+      // Cargar Notas
       if (notes && notes.length > 0) {
         notes.forEach(note => {
             if (note.cfiRange) {
@@ -302,9 +330,35 @@ export default function ReaderPage() {
     }
   };
 
-  // --- FUNCIONES UI ---
-  const handlePrev = () => renditionRef.current?.prev();
-  const handleNext = () => renditionRef.current?.next();
+ // --- FUNCIONES UI MEJORADAS ---
+  const handlePrev = () => {
+    renditionRef.current?.prev();
+
+    // Restar 1 página (mínimo 1)
+    if (currentVirtualPageRef.current > 1) {
+        currentVirtualPageRef.current -= 1;
+        
+        // Guardamos el cambio
+        const currentLocation = renditionRef.current?.location?.start?.cfi;
+        if (currentLocation) saveProgress(currentLocation);
+    }
+  };
+
+  const handleNext = () => {
+    renditionRef.current?.next();
+
+    // Obtener total
+    const totalPages = book.userBook?.totalPages || book.pageCount || 100;
+
+    // Sumar 1 página (máximo totalPages)
+    if (currentVirtualPageRef.current < totalPages) {
+        currentVirtualPageRef.current += 1;
+        
+        // Guardamos el cambio
+        const currentLocation = renditionRef.current?.location?.start?.cfi;
+        if (currentLocation) saveProgress(currentLocation);
+    }
+  };
 
   const handleZoom = (direction) => {
     let newSize = fontSize;
@@ -319,7 +373,6 @@ export default function ReaderPage() {
     renditionRef.current?.themes.select(themeKey);
   };
 
-  // --- ANOTACIONES ---
   const addHighlight = async (color) => {
     if (!selectionMenu.cfiRange) return;
     
@@ -380,7 +433,6 @@ export default function ReaderPage() {
     } catch (e) {}
   };
 
-  // ✅ Wrapper para el PDF (recibe el número de página del componente hijo)
   const handlePdfProgress = (pageNumber) => {
     saveProgress(parseInt(pageNumber));
   };
@@ -410,7 +462,7 @@ export default function ReaderPage() {
                     url={book.pdfFileUrl} 
                     title={book.titulo}
                     initialPage={book.userBook?.currentPage || 1}
-                    onProgress={handlePdfProgress} // ✅ CONECTADO
+                    onProgress={handlePdfProgress} 
                 />
             </div>
          </div>

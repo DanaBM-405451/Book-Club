@@ -3,188 +3,68 @@
 const prisma = require('../config/database');
 const { uploadBookCover, uploadBookFile } = require('../utils/cloudinary.utils');
 const { extractPdfMetadata, extractEpubMetadata, cleanupTempFile, normalizeMetadata} = require('../utils/fileMetadata')
-const axios = require('axios'); // ✅ Necesario para comunicar servicios
+const axios = require('axios'); 
 
 class BookService {
   
   // --- MÉTODO PRIVADO: Notificar a Gamification Service ---
-  async _notifyGamificationBookFinished(userId, bookId) {
+  async _notifyGamification(userId, data) {
     try {
-      // Ajusta la URL al puerto de tu gamification-service
       const gamificationUrl = process.env.GAMIFICATION_SERVICE_URL || 'http://localhost:3004';
       
-      console.log(`🎉 Notificando libro terminado: ${bookId} para usuario ${userId}`);
+      console.log(`🎮 Notificando a Gamification:`, data);
       
       await axios.post(`${gamificationUrl}/api/gamification/stats/update`, {
         userId,
-        booksCompleted: 1, // Sumamos 1 libro
-        xpGained: 50,      // Bonus por terminar libro
-        reason: 'Libro completado'
+        ...data
       });
       
     } catch (error) {
       console.error('❌ Error notificando a Gamification:', error.message);
-      // No lanzamos error para no bloquear la respuesta al usuario
     }
   }
 
-  /**
-   * Crear nuevo libro y agregarlo a la biblioteca
-   */
-  /*async createBook(userId, bookData, files = {}) {
-    console.log('📚 Service - Creating book');
-    console.log('📦 bookData:', bookData);
-    console.log('📁 files:', Object.keys(files));
-
-    // 1. VARIABLES PARA METADATOS AUTOMÁTICOS
-    let detectedMeta = { pageCount: 0, titulo: null, autor: null };
-
-    // 2. INSPECCIONAR ARCHIVOS 
-    if (files.pdf && files.pdf[0]) {
-        console.log("🔍 Analizando PDF...");
-        const pdfMeta = await extractPdfMetadata(files.pdf[0].buffer);
-        detectedMeta = { ...detectedMeta, ...pdfMeta };
-        console.log("✅ Datos detectados del PDF:", detectedMeta);
-    } 
-    
-    // (Opcional: lógica similar para EPUB si encuentras una librería robusta de buffer)
-
-    // 3. MEZCLAR DATOS (Prioridad: Manual > Automático)
-    // Si el usuario escribió algo, lo usamos. Si no, usamos lo detectado.
-    const tituloFinal = bookData.titulo || detectedMeta.titulo;
-    const autorFinal = bookData.autor || detectedMeta.autor;
-    
-    // Para las páginas, preferimos lo detectado si el manual es 0 o null
-    let pageCountFinal = bookData.pageCount ? parseInt(bookData.pageCount) : 0;
-    if (pageCountFinal === 0 && detectedMeta.pageCount > 0) {
-        pageCountFinal = detectedMeta.pageCount;
-    }
-    
-    // Validaciones...
-    //if (!bookData.titulo) throw new Error('Título requerido');
-    //if (!bookData.autor) throw new Error('El autor es requerido');
-    
-    let coverImageUrl = bookData.coverImageUrl || null;
-    let pdfFileUrl = null;
-    let epubFileUrl = null;
-
-    if (files.cover && files.cover[0]) {
-      const tempId = `temp_${Date.now()}`;
-      coverImageUrl = await uploadBookCover(files.cover[0].buffer, tempId);
-    }
-
-    let pageCount = bookData.pageCount ? parseInt(bookData.pageCount) : 0;
-    
-    if (pageCount === 0) {
-        console.warn(" ADVERTENCIA: Creando libro sin número de páginas. La barra de progreso no funcionará.");
-    }
-
-    const book = await prisma.book.create({
-      data: {
-        titulo: bookData.titulo,
-        autor: bookData.autor,
-        descripcion: bookData.descripcion,
-        pageCount: pageCountFinal,
-        //pageCount: bookData.pageCount ? parseInt(bookData.pageCount) : null,
-        categorias: bookData.categorias,
-        idioma: bookData.idioma || 'es',
-        isbn10: bookData.isbn10,
-        isbn13: bookData.isbn13,
-        coverImageUrl: coverImageUrl,
-        publicacion: bookData.publicacion,
-        fechaPublicacion: bookData.fechaPublicacion,
-        source: bookData.source || 'MANUAL',
-        googleBookId: bookData.googleBookId,
-        uploadedByUserId: userId,
-        isPublic: true,
-        isDeleted: false,
-      },
-    });
-
-    // Subida de archivos (simplificada por brevedad, tu lógica original estaba bien)
-    if (files.pdf && files.pdf[0]) {
-        pdfFileUrl = await uploadBookFile(files.pdf[0].buffer, book.id, 'pdf');
-        await prisma.book.update({ where: { id: book.id }, data: { pdfFileUrl } });
-    }
-    if (files.epub && files.epub[0]) {
-        epubFileUrl = await uploadBookFile(files.epub[0].buffer, book.id, 'epub');
-        await prisma.book.update({ where: { id: book.id }, data: { epubFileUrl } });
-    }
-
-    const userBook = await prisma.userBook.create({
-      data: {
-        userId,
-        bookId: book.id,
-        totalPages: book.pageCount || 0,
-        status: bookData.shelf || 'QUIERO_LEER',
-        currentPage: 0 // Explícito: empieza en página 0
-      },
-    });
-
-    // Si se crea directamente como completado (raro pero posible)
-    if (userBook.status === 'COMPLETADO') {
-        this._notifyGamificationBookFinished(userId, book.id);
-    }
-
-    return { book, userBook };
-  }*/
-async createBook(userId, bookData, files = {}) {
+  async createBook(userId, bookData, files = {}) {
     console.log('📚 Service - Creating book');
 
-    // =====================================================
-    // 1. EXTRAER METADATOS (usando PATH)
-    // =====================================================
+    // 1. EXTRAER METADATOS
     let detectedMeta = { pageCount: 0, titulo: null, autor: null, description: null };
-
-
 
     try {
       if (files.pdf && files.pdf[0] && files.pdf[0].path) {
-        console.log("🔍 Analizando PDF...");
         const pdfMeta = await extractPdfMetadata(files.pdf[0].path);
         detectedMeta = normalizeMetadata(pdfMeta);
-        console.log("✅ Metadatos PDF:", detectedMeta);
       } else if (files.epub && files.epub[0] && files.epub[0].path) {
-        console.log("🔍 Analizando EPUB...");
         const epubMeta = await extractEpubMetadata(files.epub[0].path);
         detectedMeta = normalizeMetadata(epubMeta);
-        console.log("✅ Metadatos EPUB:", detectedMeta);
       }
     } catch (error) {
       console.error('❌ Error extrayendo metadatos:', error);
     }
 
-    // =====================================================
     // 2. COMBINAR DATOS
-    // =====================================================
-   const tituloFinal = (bookData.titulo && bookData.titulo.trim() !== "") 
-                    ? bookData.titulo 
-                    : (detectedMeta.titulo || "Sin título");
+    const tituloFinal = (bookData.titulo && bookData.titulo.trim() !== "") 
+                      ? bookData.titulo 
+                      : (detectedMeta.titulo || "Sin título");
 
-const autorFinal = (bookData.autor && bookData.autor.trim() !== "") 
-                   ? bookData.autor 
-                   : (detectedMeta.autor || "Autor Desconocido");
+    const autorFinal = (bookData.autor && bookData.autor.trim() !== "") 
+                      ? bookData.autor 
+                      : (detectedMeta.autor || "Autor Desconocido");
 
-// Para las páginas, preferimos la detección si el manual es 0 o inválido
-let pageCountFinal = parseInt(bookData.pageCount);
-if (!pageCountFinal || pageCountFinal <= 0) {
-    pageCountFinal = detectedMeta.pageCount || 100; // Default de seguridad
-}
-
-    // =====================================================
-    // 3. SUBIR PORTADA
-    // =====================================================
-    let coverImageUrl = bookData.coverImageUrl || null;
-    
-    if (files.cover && files.cover[0]) {
-      const tempId = `temp_${Date.now()}`;
-      // ✅ uploadBookCover debe aceptar buffer O path
-      coverImageUrl = await uploadBookCover(files.cover[0].buffer, tempId);
+    let pageCountFinal = parseInt(bookData.pageCount);
+    if (!pageCountFinal || pageCountFinal <= 0) {
+        pageCountFinal = detectedMeta.pageCount || 100;
     }
 
-    // =====================================================
+    // 3. SUBIR PORTADA
+    let coverImageUrl = bookData.coverImageUrl || null;
+    if (files.cover && files.cover[0]) {
+      const tempId = `temp_${Date.now()}`;
+      coverImageUrl = await uploadBookCover(files.cover[0].path, tempId);
+      await cleanupTempFile(files.cover[0].path);
+    }
+
     // 4. CREAR LIBRO
-    // =====================================================
     const book = await prisma.book.create({
       data: {
         titulo: tituloFinal,
@@ -206,37 +86,23 @@ if (!pageCountFinal || pageCountFinal <= 0) {
       },
     });
 
-    // =====================================================
-    // 5. SUBIR ARCHIVOS PDF/EPUB
-    // =====================================================
+    // 5. SUBIR ARCHIVOS
     let pdfFileUrl = null;
     let epubFileUrl = null;
 
     if (files.pdf && files.pdf[0]) {
       pdfFileUrl = await uploadBookFile(files.pdf[0].path, book.id, 'pdf');
-      await prisma.book.update({ 
-        where: { id: book.id }, 
-        data: { pdfFileUrl } 
-      });
-      
-      // ✅ LIMPIAR archivo temporal después de subir
+      await prisma.book.update({ where: { id: book.id }, data: { pdfFileUrl } });
       await cleanupTempFile(files.pdf[0].path);
     }
 
     if (files.epub && files.epub[0]) {
       epubFileUrl = await uploadBookFile(files.epub[0].path, book.id, 'epub');
-      await prisma.book.update({ 
-        where: { id: book.id }, 
-        data: { epubFileUrl } 
-      });
-      
-      
+      await prisma.book.update({ where: { id: book.id }, data: { epubFileUrl } });
+      await cleanupTempFile(files.epub[0].path);
     }
 
-
-    // =====================================================
     // 6. AGREGAR A BIBLIOTECA
-    // =====================================================
     const userBook = await prisma.userBook.create({
       data: {
         userId,
@@ -246,6 +112,11 @@ if (!pageCountFinal || pageCountFinal <= 0) {
         currentPage: 0
       },
     });
+
+    // Notificar si se creó como completado (raro, pero posible)
+    if (userBook.status === 'COMPLETADO') {
+        this._notifyGamification(userId, { booksCompleted: 1, xpGained: 50, reason: 'Libro creado como completado' });
+    }
 
     return { book, userBook };
   }
@@ -285,18 +156,15 @@ if (!pageCountFinal || pageCountFinal <= 0) {
     return userBook;
   }
 
-  /**
-   * Actualizar libro (Edición general)
-   */
   async updateBook(userId, bookId, data, files = {}) {
     const userBook = await this.getUserBook(userId, bookId);
     const wasCompleted = userBook.status === 'COMPLETADO';
 
-    // 1. Actualizar datos del libro (Tabla Book)
+    // 1. Actualizar datos del libro (Tabla Book) - SIN CAMBIOS AQUÍ
     let coverImageUrl = undefined;
     if (files.cover && files.cover[0]) {
       const tempId = `book_${bookId}_${Date.now()}`;
-      coverImageUrl = await uploadBookCover(files.cover[0].buffer, tempId);
+      coverImageUrl = await uploadBookCover(files.cover[0].path, tempId);
     }
 
     const bookUpdateData = {};
@@ -311,23 +179,28 @@ if (!pageCountFinal || pageCountFinal <= 0) {
 
     // 2. Actualizar estado de usuario (Tabla UserBook)
     const userBookUpdateData = {};
-    let isJustFinished = false;
+    
+    // Variables para controlar la notificación
+    let statusChanged = false;
+    let newStatus = userBook.status;
 
     if (data.status) {
        const validShelves = ['QUIERO_LEER', 'LEYENDO', 'COMPLETADO', 'EN_ESPERA', 'ABANDONADO'];
        if (validShelves.includes(data.status)) {
          userBookUpdateData.status = data.status;
+         newStatus = data.status;
+         statusChanged = data.status !== userBook.status;
 
          if (data.status === 'COMPLETADO') {
             userBookUpdateData.finishedAt = new Date();
             userBookUpdateData.progressPercent = 100;
+            // Si es EPUB o no tiene paginas, mantenemos el total
             userBookUpdateData.currentPage = userBook.book.pageCount || userBook.totalPages;
-            
-            // ✅ DETECCIÓN: Si no estaba completado y ahora sí
-            if (!wasCompleted) isJustFinished = true;
          } else if (data.status === 'LEYENDO' && !userBook.startedAt) {
             userBookUpdateData.startedAt = new Date();
          }
+         // Si sacamos de completado, limpiamos finishedAt? Opcional. 
+         // userBookUpdateData.finishedAt = null; 
        }
     }
 
@@ -337,9 +210,24 @@ if (!pageCountFinal || pageCountFinal <= 0) {
       await prisma.userBook.update({ where: { id: userBook.id }, data: userBookUpdateData });
     }
 
-    // ✅ 3. NOTIFICACIÓN
-    if (isJustFinished) {
-       await this._notifyGamificationBookFinished(userId, bookId);
+    // ✅ 3. NOTIFICACIÓN INTELIGENTE (SUMA O RESTA)
+    if (statusChanged) {
+        // A) Se completó (No estaba completo -> Ahora sí)
+        if (!wasCompleted && newStatus === 'COMPLETADO') {
+            this._notifyGamification(userId, { 
+                booksCompleted: 1, 
+                xpGained: 50, 
+                reason: 'Libro completado' 
+            });
+        }
+        // B) Se descompletó (Estaba completo -> Ahora no)
+        else if (wasCompleted && newStatus !== 'COMPLETADO') {
+            this._notifyGamification(userId, { 
+                booksCompleted: -1, // 👈 RESTAMOS EL LIBRO
+                xpGained: -50,      // 👈 RESTAMOS LA XP
+                reason: 'Corrección de estado' 
+            });
+        }
     }
 
     return this.getUserBook(userId, bookId);
@@ -362,131 +250,129 @@ if (!pageCountFinal || pageCountFinal <= 0) {
   }
 
   /**
-   * ✅ Actualizar progreso (Barra de lectura)
-   *//*
-  async updateProgress(userId, bookId, currentPage, ) {
+   * ✅ Actualizar progreso (Barra de lectura + TIEMPO + NOTIFICACIÓN DE RACHA)
+   *  Actualizar progreso (Soporte Dual: Página Entera + CFI)
+   **/
+
+  
+  async updateProgress(userId, bookId, currentPage, durationMinutes = 0, pagesRead = 0, lastReadPosition = null) {
     const userBook = await this.getUserBook(userId, bookId);
     const wasCompleted = userBook.status === 'COMPLETADO';
-
-    const total = userBook.totalPages || 1;
-    const current = parseInt(currentPage);
-    const progressPercent = ((current / total) * 100).toFixed(2);
-    
-    // Detectar si llegó al final
-    const isFinished = current >= total;
-
-    const updatedUserBook = await prisma.userBook.update({
-      where: { id: userBook.id },
-      data: {
-        currentPage: current,
-        progressPercent: parseFloat(progressPercent),
-        lastReadAt: new Date(),
-        // Si llegó al final, cambiar estado automáticamente
-        status: isFinished ? 'COMPLETADO' : userBook.status,
-        finishedAt: isFinished ? new Date() : userBook.finishedAt,
-      },
-    });
-
-    // ✅ NOTIFICACIÓN: Si llegó al final y no estaba completado antes
-    if (isFinished && !wasCompleted) {
-        await this._notifyGamificationBookFinished(userId, bookId);
-    }
-
-    return updatedUserBook;
-  }
-*/
-
-/**
-   * ✅ Actualizar progreso (Barra de lectura + TIEMPO)
-   */
- async updateProgress(userId, bookId, currentPage, durationMinutes = 0) {
-    const userBook = await this.getUserBook(userId, bookId);
-    
-    // Detectamos si es EPUB (texto) o PDF (número)
-    // Si currentPage es string y empieza con 'epubcfi', es un EPUB
-    const isEpubCfi = typeof currentPage === 'string' && currentPage.startsWith('epubcfi');
     
     const updateData = {
         lastReadAt: new Date(),
     };
 
-    // 1. TIEMPO: Sumamos los minutos si vienen
-    if (durationMinutes && Number(durationMinutes) > 0) {
+    // 1. TIEMPO
+    const minutes = durationMinutes && Number(durationMinutes) > 0 ? parseInt(durationMinutes) : 0;
+    if (minutes > 0) {
         updateData.totalReadingTimeMinutes = {
-            increment: parseInt(durationMinutes)
+            increment: minutes
         };
     }
 
-    // 2. POSICIÓN: Guardamos en el campo correcto según el tipo
-    if (isEpubCfi) {
-        // 📘 CASO EPUB -> Guardamos en 'lastReadPosition' (String)
-        updateData.lastReadPosition = currentPage;
+    let isJustFinished = false;
+
+    // 2. POSICIÓN EXACTA (CFI para EPUB)
+    // Si el frontend nos manda una posición exacta (epubcfi...), la guardamos.
+    if (lastReadPosition && typeof lastReadPosition === 'string') {
+        updateData.lastReadPosition = lastReadPosition;
+    }
+
+    // 3. BARRA DE PROGRESO (Número de página)
+    // El frontend ahora siempre manda un número entero en 'currentPage'
+    const pageNum = parseInt(currentPage);
+    
+    if (!isNaN(pageNum) && pageNum >= 0) {
+        updateData.currentPage = pageNum;
         
-        // ¡IMPORTANTE! No tocamos 'currentPage' (Int) para evitar el error de Prisma
-    } else {
-        // 📕 CASO PDF -> Guardamos en 'currentPage' (Int)
-        const pageNum = parseInt(currentPage);
+        // Calcular porcentaje visual
+        const total = userBook.totalPages || 1;
+        const percent = ((pageNum / total) * 100).toFixed(2);
+        updateData.progressPercent = Math.min(100, parseFloat(percent));
         
-        if (!isNaN(pageNum)) {
-            updateData.currentPage = pageNum;
-            
-            // Calculamos porcentaje solo para PDF (o si tuvieras totalCfi para epub)
-            const total = userBook.totalPages || 1;
-            const percent = ((pageNum / total) * 100).toFixed(2);
-            updateData.progressPercent = Math.min(100, parseFloat(percent));
-            
-            // Completar si llega al final
-            if (pageNum >= total) {
-                updateData.status = 'COMPLETADO';
-                updateData.finishedAt = new Date();
-                
-                // Notificar gamificación
-                if (userBook.status !== 'COMPLETADO') {
-                     await this._notifyGamificationBookFinished(userId, bookId);
-                }
-            }
+        // Completar si llega al final (Margen de error de 2 páginas)
+        if (pageNum >= (total - 2) && !wasCompleted) {
+            updateData.status = 'COMPLETADO';
+            updateData.finishedAt = new Date();
+            updateData.progressPercent = 100;
+            isJustFinished = true;
         }
     }
 
-    // 3. Ejecutar Update
-    return await prisma.userBook.update({
+    // 4. EJECUTAR UPDATE EN DB
+    const result = await prisma.userBook.update({
       where: { id: userBook.id },
       data: updateData,
     });
 
-    // ✅ NOTIFICACIÓN: Si llegó al final y no estaba completado antes
-    if (isFinished && !wasCompleted) {
-        await this._notifyGamificationBookFinished(userId, bookId);
+    // 5. NOTIFICAR A GAMIFICACIÓN
+    // Si hubo minutos, páginas o se completó
+    if (minutes > 0 || pagesRead > 0 || isJustFinished) {
+        const gamificationData = {
+            minutesRead: minutes,
+            pagesRead: pagesRead, 
+            reason: 'Progreso de lectura'
+        };
+
+        if (isJustFinished) {
+            gamificationData.booksCompleted = 1;
+            gamificationData.xpGained = 50; 
+        } else {
+            // XP: 1 por minuto + 1 por página leída
+            gamificationData.xpGained = minutes + (pagesRead || 0); 
+        }
+
+        this._notifyGamification(userId, gamificationData);
     }
 
-    return updatedUserBook;
+    return result;
   }
   
-  /**
-   * ✅ Cambiar estante (Drag & Drop o Dropdown)
-   */
   async changeShelf(userId, bookId, shelf) {
     const userBook = await this.getUserBook(userId, bookId);
     const wasCompleted = userBook.status === 'COMPLETADO';
+    const isNowCompleted = shelf === 'COMPLETADO';
     
     const validShelves = ['QUIERO_LEER', 'LEYENDO', 'COMPLETADO', 'EN_ESPERA', 'ABANDONADO'];
     if (!validShelves.includes(shelf)) throw new Error('Estante inválido');
 
-    const updatedUserBook = await prisma.userBook.update({
-      where: { id: userBook.id },
-      data: {
+    // Preparamos update
+    const updateData = {
         status: shelf,
         startedAt: shelf === 'LEYENDO' && !userBook.startedAt ? new Date() : userBook.startedAt,
-        finishedAt: shelf === 'COMPLETADO' ? new Date() : null,
-        // Si completa, poner progreso al 100%
-        progressPercent: shelf === 'COMPLETADO' ? 100 : userBook.progressPercent,
-        currentPage: shelf === 'COMPLETADO' ? (userBook.totalPages || userBook.currentPage) : userBook.currentPage
-      },
+    };
+
+    if (isNowCompleted) {
+        updateData.finishedAt = new Date();
+        updateData.progressPercent = 100;
+        updateData.currentPage = userBook.totalPages || userBook.currentPage;
+    } else if (wasCompleted) {
+        // Si salimos de completado, ¿queremos resetear el progreso?
+        // Generalmente no, pero el finishedAt deja de tener sentido como "último"
+        // updateData.finishedAt = null; 
+    }
+
+    const updatedUserBook = await prisma.userBook.update({
+      where: { id: userBook.id },
+      data: updateData,
     });
 
-    // ✅ NOTIFICACIÓN
-    if (shelf === 'COMPLETADO' && !wasCompleted) {
-        await this._notifyGamificationBookFinished(userId, bookId);
+    // ✅ LÓGICA DE NOTIFICACIÓN (SUMA O RESTA)
+    if (!wasCompleted && isNowCompleted) {
+        // Sumar
+        this._notifyGamification(userId, { 
+            booksCompleted: 1, 
+            xpGained: 50, 
+            reason: 'Estante cambiado a completado' 
+        });
+    } else if (wasCompleted && !isNowCompleted) {
+        // Restar
+        this._notifyGamification(userId, { 
+            booksCompleted: -1, // 👈 RESTAMOS
+            xpGained: -50,      // 👈 RESTAMOS
+            reason: 'Estante cambiado de completado' 
+        });
     }
 
     return updatedUserBook;
@@ -520,178 +406,55 @@ if (!pageCountFinal || pageCountFinal <= 0) {
       byShelf: {
         quieroLeer: shelfStats.quiero_leer || 0,
         leyendo: shelfStats.leyendo || 0,
-        completado: shelfStats.completado || 0, // Este número ahora subirá correctamente
+        completado: shelfStats.completado || 0,
         enEspera: shelfStats.en_espera || 0,
         abandonado: shelfStats.abandonado || 0,
       }
     };
   }
 
-  async getAdminStats(req, res, next) {
-    try {
-      // Verificar rol (asumiendo que req.user.role viene del middleware)
-      // Si tu middleware de librería no chequea roles, puedes saltar esto o implementarlo
-      
-      const totalBooks = await prisma.book.count({ where: { isDeleted: false } });
-      const totalReads = await prisma.userBook.count({ where: { status: 'COMPLETADO' } });
-      
-      // Libros más populares (más veces agregados)
-      const popularBooks = await prisma.userBook.groupBy({
-        by: ['bookId'],
-        _count: { bookId: true },
-        orderBy: { _count: { bookId: 'desc' } },
-        take: 5
-      });
-
-      res.json({
-        success: true,
-        data: {
-          totalBooks,
-          totalReads,
-          popularBooksCount: popularBooks.length
-        }
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
-   * Obtener estadísticas globales de biblioteca (Para Admin)
-   */
- // library-service/src/services/book.service.js
-
-  // Modificamos el método para aceptar un objeto de filtros
-
-
   async getGlobalLibraryStats({ startDate, endDate, genre } = {}) {
-    console.log("📊 Calculando estadísticas de biblioteca...", { startDate, endDate, genre });
+    const whereClause = { isDeleted: false };
 
-    // 1. Construir Filtro Dinámico
-    const whereClause = {
-      isDeleted: false
-    };
-
-    // Filtro de Fechas
     if (startDate && endDate) {
       const start = new Date(startDate);
       const end = new Date(endDate);
-      
       if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-        // Ajustamos al final del día
         end.setHours(23, 59, 59, 999);
-        
-        whereClause.createdAt = {
-          gte: start,
-          lte: end
-        };
+        whereClause.createdAt = { gte: start, lte: end };
       }
     }
 
-    // Filtro de Género (buscamos dentro del string 'categorias')
     if (genre && genre !== 'TODOS' && genre !== 'undefined') {
-      whereClause.categorias = {
-        contains: genre 
-      };
+      whereClause.categorias = { contains: genre };
     }
 
     try {
-      // 2. Ejecutar consultas
       const totalBooks = await prisma.book.count({ where: whereClause });
       
-      // Para lecturas, intentamos filtrar por fecha de actualización si existe el filtro
       const readsWhere = { status: 'COMPLETADO' };
-      if (whereClause.createdAt) {
-        readsWhere.updatedAt = whereClause.createdAt;
-      }
+      if (whereClause.createdAt) readsWhere.updatedAt = whereClause.createdAt;
       const totalReads = await prisma.userBook.count({ where: readsWhere });
       
-      // 3. Obtener lista detallada
       const latestBooks = await prisma.book.findMany({
-        take: 50, // Traemos suficientes para el reporte
+        take: 50,
         where: whereClause,
         orderBy: { createdAt: 'desc' },
-        select: { 
-          titulo: true, 
-          autor: true, 
-          categorias: true, 
-          createdAt: true, 
-          uploadedByUserId: true 
-        }
+        select: { titulo: true, autor: true, categorias: true, createdAt: true, uploadedByUserId: true }
       });
 
-      // Mapeo para el frontend (categorias -> genero)
       const mappedBooks = latestBooks.map(b => ({
         ...b,
-        genero: b.categorias ? b.categorias.split(',')[0] : 'General' // Tomamos la primera categoría
+        genero: b.categorias ? b.categorias.split(',')[0] : 'General'
       }));
 
       return { totalBooks, totalReads, latestBooks: mappedBooks };
 
     } catch (error) {
       console.error("🔥 Error crítico en BookService:", error);
-      // Retornamos estructura vacía para no romper el frontend si falla la DB
       return { totalBooks: 0, totalReads: 0, latestBooks: [] };
     }
   }
-
- /*sync getGlobalLibraryStats({ startDate, endDate, genre } = {}) {
-    const whereClause = { isDeleted: false };
-    
-    // Construir filtro de fechas dinámico
-   // 1. Filtro de Fechas
-    if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999); // Final del día
-
-      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-        whereClause.createdAt = {
-          gte: start,
-          lte: end
-        };
-      }
-    }
-
-    if (genre && genre !== 'TODOS') {
-      // Usamos 'contains' porque 'categorias' es un String tipo "Fantasía, Terror"
-      whereClause.categorias = {
-        contains: genre 
-      };
-    }
-
-    // Construir filtro de género
-    const genreFilter = genre && genre !== 'TODOS' ? { genero: genre } : {};
-
-    // Combinar filtros (sin borrar el isDeleted: false)
-   /*onst whereClause = {
-      isDeleted: false,
-      ...dateFilter,
-      ...genreFilter
-    };*/
-
-   /* const totalBooks = await prisma.book.count({ where: whereClause });
-    
-    // Nota: Para lecturas finalizadas, el filtro de género podría requerir joins complejos.
-    // Para la demo, mantenemos lecturas totales simples o aplicamos solo fecha.
-    const totalReads = await prisma.userBook.count({ 
-      where: { 
-        status: 'COMPLETADO',
-        // Si quieres filtrar lecturas por fecha también:
-        updatedAt: dateFilter.createdAt 
-      } 
-    });
-    
-    // Lista filtrada
-   /* const latestBooks = await prisma.book.findMany({
-      take: 20, // Traemos más para el reporte
-      where: whereClause,
-      orderBy: { createdAt: 'desc' },
-      select: { titulo: true, autor: true, genero: true, createdAt: true, uploadedByUserId: true }
-    });
-
-    return { totalBooks, totalReads, latestBooks };
-  }*/
 }
 
 module.exports = new BookService();
