@@ -254,7 +254,7 @@ class UserController {
    */
   async createProfile(req, res, next) {
     try {
-      const { userId } = req.body;
+      const { userId, ...profileData} = req.body;
       
       if (!userId) {
         return res.status(400).json({
@@ -262,8 +262,8 @@ class UserController {
           message: 'userId es requerido'
         });
       }
-      
-      const profile = await userService.createProfile(userId);
+      // Pasamos los datos adicionales al servicio
+      const profile = await userService.createProfile(userId, profileData);
       
       res.status(201).json({
         success: true,
@@ -273,6 +273,7 @@ class UserController {
     } catch (error) {
       next(error);
     }
+      const profile = await userService.createProfile(userId);
   }
 
   /**

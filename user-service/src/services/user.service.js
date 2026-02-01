@@ -14,20 +14,24 @@ class UserService {
     });
     
     if (existing) {
-      console.log(`⚠️ Profile already exists for user ${userId}`);
+      console.log(`⚠️ El perfil ya existe con el  usuario ${userId}`);
       return existing;
     }
     
     const profile = await prisma.profile.create({
       data: {
         userId,
+        username: additionalData.username || null,
         nombre: additionalData.nombre || null,
         apellido: additionalData.apellido || null,
+        pais: additionalData.pais || null,
+        ciudad: additionalData.ciudad || null,
+        provincia: additionalData.provincia || null,
         birthDate: additionalData.birthDate ? new Date(additionalData.birthDate) : null,
         avatarType: 'DEFAULT',
         defaultAvatar: 'avatar_01.png',
         isProfilePublic: true,
-        showLocation: false,
+        showLocation: true,
         showStats: true
       }
     });
@@ -52,7 +56,7 @@ class UserService {
       console.log(`✅ Notification settings created for user ${userId}`);
     }
     
-    console.log(`✅ Profile created for user ${userId}`);
+    console.log(`✅ Profile created for user ${userId} with full data`);
     return profile;
   }
 

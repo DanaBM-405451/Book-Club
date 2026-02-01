@@ -1,54 +1,24 @@
 // social-service/src/services/external.service.js
-// src/services/external.service.js
 const axios = require('axios');
 const servicesConfig = require('../config/services.config');
 
 class ExternalService {
-  /**
-   * Obtener perfil de usuario del user-service
-   */
-  async getUserProfiles(userIds, token) {
-    // ✅ Validación de seguridad
-    if (!userIds || userIds.length === 0) return [];
-
-    try {
-      const url = `${servicesConfig.USER_SERVICE_URL}/api/users/${userId}`;
-      
-      console.log(`📍 Llamando a: ${url}`);
-      
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: token
-        },
-        timeout: 5000
-      });
-
-      return response.data.data || response.data;
-    } catch (error) {
-      console.error(`❌ Error obteniendo perfil de usuario ${userId}:`, error.message);
-      throw new Error('No se pudo obtener el perfil del usuario');
-    }
-  }
 
   /**
    * Buscar usuarios en el user-service
-   * ✅ AHORA SÍ EXISTE EN USER-SERVICE
    */
   async searchUsers(query, page, limit, token) {
     try {
       const url = `${servicesConfig.USER_SERVICE_URL}/api/users/search`;
-      
       console.log(`📍 Llamando a: ${url}?q=${query}`);
       
       const response = await axios.get(url, {
         params: { q: query, page, limit },
-        headers: {
-          Authorization: token
-        },
+        headers: { Authorization: token },
         timeout: 5000
       });
 
-      return response.data; // ✅ Retorna el objeto completo con data y pagination
+      return response.data;
     } catch (error) {
       console.error('❌ Error buscando usuarios:', error.message);
       throw new Error('No se pudo buscar usuarios');
@@ -56,11 +26,16 @@ class ExternalService {
   }
 
   /**
-   * Obtener múltiples perfiles de usuarios
+   * ✅ Obtener múltiples perfiles de usuarios (CORREGIDO)
+   * Usa la ruta /profiles/batch que configuramos en user-service
    */
   async getUserProfiles(userIds, token) {
+    // Validación de seguridad
+    if (!userIds || userIds.length === 0) return [];
+
     try {
-      const url = `${servicesConfig.USER_SERVICE_URL}/api/users/batch`;
+      // 🟢 CAMBIO CLAVE AQUÍ: Agregar '/profiles'
+      const url = `${servicesConfig.USER_SERVICE_URL}/api/users/profiles/batch`;
       
       console.log(`📍 Llamando a: ${url} con ${userIds.length} usuarios`);
       
@@ -75,36 +50,29 @@ class ExternalService {
         }
       );
 
-      return response.data.data || response.data;
+      return response.data.data || response.data || [];
     } catch (error) {
       console.error('❌ Error obteniendo perfiles de usuarios:', error.message);
-      return [];
+      return []; // Retornar vacío para no romper la UI
     }
   }
 
   /**
    * Obtener perfil de UN usuario (Singular)
-   * GET /users/:userId
    */
   async getUserProfile(userId, token) {
     try {
-      // Ajusta la URL si tu user-service tiene prefijo /api/users
       const url = `${servicesConfig.USER_SERVICE_URL}/api/users/${userId}`;
-      
-      console.log(`📍 Llamando a: ${url}`);
+      // console.log(`📍 Llamando a: ${url}`); // Descomentar si necesitas depurar
       
       const response = await axios.get(url, {
-        headers: {
-          Authorization: token
-        },
+        headers: { Authorization: token },
         timeout: 5000
       });
 
-      // Manejar respuestas anidadas { success: true, data: {...} }
       return response.data.data || response.data;
     } catch (error) {
       console.error(`❌ Error obteniendo perfil ${userId}:`, error.message);
-      // Retornar null para no romper la página si falla un perfil secundario
       return null; 
     }
   }
@@ -115,16 +83,10 @@ class ExternalService {
   async getBookInfo(bookId, token) {
     try {
       const url = `${servicesConfig.LIBRARY_SERVICE_URL}/api/library/books/${bookId}`;
-      
-      console.log(`📍 Llamando a: ${url}`);
-      
       const response = await axios.get(url, {
-        headers: {
-          Authorization: token
-        },
+        headers: { Authorization: token },
         timeout: 5000
       });
-
       return response.data.data || response.data;
     } catch (error) {
       console.error(`❌ Error obteniendo libro ${bookId}:`, error.message);
@@ -137,24 +99,15 @@ class ExternalService {
    */
   async awardXP(userId, points, reason, token) {
     try {
-      const url = `${servicesConfig.GAMIFICATION_SERVICE_URL}/api/gamification/pages`;
-      
-      console.log(`📍 Llamando a: ${url}`);
+      const url = `${servicesConfig.GAMIFICATION_SERVICE_URL}/api/gamification/points/award`; // Ajusta si tu ruta es diferente
       
       const response = await axios.post(url,
-        { 
-          pagesRead: points,
-          bookId: reason
-        },
+        { userId, points, reason },
         {
-          headers: {
-            Authorization: token,
-            'Content-Type': 'application/json'
-          },
+          headers: { Authorization: token },
           timeout: 5000
         }
       );
-
       return response.data;
     } catch (error) {
       console.error('❌ Error otorgando XP:', error.message);
@@ -168,49 +121,16 @@ class ExternalService {
   async registerReadingActivity(userId, activityType, metadata, token) {
     try {
       const url = `${servicesConfig.GAMIFICATION_SERVICE_URL}/api/gamification/stats/update`;
-      
-      console.log(`📍 Llamando a: ${url}`);
-      
       const response = await axios.post(url,
-        { 
-          userId, 
-          activityType, 
-          ...metadata 
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          timeout: 5000
-        }
+        { userId, activityType, ...metadata },
+        { headers: { 'Content-Type': 'application/json' }, timeout: 5000 }
       );
-
       return response.data;
     } catch (error) {
       console.error('❌ Error registrando actividad:', error.message);
       return null;
     }
   }
-
-  /**
- * Obtener información de múltiples libros por IDs
- */
-async getBooksByIds(bookIds, token) {
-  try {
-    const response = await axios.post(
-      `${this.LIBRARY_SERVICE_URL}/api/library/books/batch`,
-      { bookIds },
-      {
-        headers: token ? { Authorization: token } : {}
-      }
-    );
-    return response.data.data || [];
-  } catch (error) {
-    console.error('Error obteniendo libros:', error.message);
-    return [];
-  }
-}
-
 }
 
 module.exports = new ExternalService();

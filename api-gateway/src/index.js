@@ -2,29 +2,26 @@
 
 const express = require('express');
 const cors = require('cors');
-const { createProxyMiddleware } = require('http-proxy-middleware'); // ✅ Nueva librería
+const { createProxyMiddleware } = require('http-proxy-middleware'); 
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Definición de Servicios
 const SERVICES = {
   auth: process.env.AUTH_SERVICE_URL || 'http://localhost:3001',
   user: process.env.USER_SERVICE_URL || 'http://localhost:3002',
   library: process.env.LIBRARY_SERVICE_URL || 'http://localhost:3003',
   gamification: process.env.GAMIFICATION_SERVICE_URL || 'http://localhost:3004',
   social: process.env.SOCIAL_SERVICE_URL || 'http://localhost:3005',
+  chat: process.env.CHAT_SERVICE_URL || 'http://localhost:3020',
 };
 
-// ✅ CONFIGURACIÓN CORS ROBUSTA
+// 1. CORS
 app.use(cors({
   origin: (origin, callback) => {
-    // Permitir peticiones sin origen (como Postman o server-to-server)
     if (!origin) return callback(null, true);
-    
     const allowedOrigins = ['http://localhost:3000', 'http://localhost:4000'];
-    
     if (allowedOrigins.indexOf(origin) !== -1 || origin.startsWith('http://localhost')) {
       callback(null, true);
     } else {
@@ -36,41 +33,42 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
 
-// 2. LOGGING BÁSICO (Antes del proxy)
+// 2. PROXY DE SOCKET (Definición Especial)
+const socketProxy = createProxyMiddleware({ 
+    target: SERVICES.chat, 
+    changeOrigin: true,
+    ws: true, 
+    logLevel: 'debug' 
+});
+
+// ✅ TRUCO PARA EVITAR QUE EXPRESS CORTE LA URL
+// En lugar de app.use('/socket.io', ...), usamos un middleware global
+// que detecta la URL manualmente. Así la ruta llega completa al backend.
 app.use((req, res, next) => {
-  console.log(`\n🔄 Gateway: ${req.method} ${req.path} -> Destino...`);
+    if (req.url.startsWith('/socket.io')) {
+        return socketProxy(req, res, next);
+    }
+    next();
+});
+
+// 3. LOGGING (Ignorando socket.io para no ensuciar)
+app.use((req, res, next) => {
+  if (!req.url.startsWith('/socket.io')) {
+      console.log(`🔄 Gateway: ${req.method} ${req.path} -> Destino...`);
+  }
   next();
 });
 
-// 3. HEALTH CHECK (Antes de los proxies)
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', services: SERVICES });
-});
+app.get('/health', (req, res) => res.json({ status: 'ok', services: SERVICES }));
 
-// =================================================================
-// 4. CONFIGURACIÓN DE PROXIES (LA MAGIA ✨)
-// =================================================================
-// Usamos http-proxy-middleware para que los archivos pasen directo (stream)
-// sin que Express los corrompa al intentar leerlos.
-
+// 4. RESTO DE PROXIES
 const proxyOptions = {
   changeOrigin: true,
-  pathRewrite: (path, req) => path, // Mantiene la ruta igual
+  pathRewrite: (path, req) => path,
   onProxyRes: (proxyRes, req, res) => {
-    // Eliminamos los headers de CORS del microservicio para que no choquen con los del Gateway
     delete proxyRes.headers['access-control-allow-origin'];
     delete proxyRes.headers['access-control-allow-methods'];
-    delete proxyRes.headers['access-control-allow-headers'];
     delete proxyRes.headers['access-control-allow-credentials'];
-  },
-  onProxyReq: (proxyReq, req, res) => {
-    // Si tenemos un body parseado (por si acaso), lo re-inyectamos
-    if (req.body && Object.keys(req.body).length > 0) {
-      const bodyData = JSON.stringify(req.body);
-      proxyReq.setHeader('Content-Type', 'application/json');
-      proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-      proxyReq.write(bodyData);
-    }
   },
   onError: (err, req, res) => {
     console.error('❌ Proxy Error:', err.message);
@@ -78,52 +76,36 @@ const proxyOptions = {
   }
 };
 
-// 🚨 IMPORTANTE: Definir las rutas del proxy ANTES de express.json()
-
-// Auth Service
 app.use('/api/auth', createProxyMiddleware({ target: SERVICES.auth, ...proxyOptions }));
-
-// User Service
 app.use('/api/users', createProxyMiddleware({ target: SERVICES.user, ...proxyOptions }));
-
-// 📚 LIBRARY SERVICE (Aquí es donde ocurre la subida de archivos)
-// Al usar este middleware, el stream del archivo pasa directo al puerto 3003
-app.use('/api/library', createProxyMiddleware({ 
-    target: SERVICES.library, 
-    changeOrigin: true,
-    // No usamos onProxyReq aquí para dejar que el stream de archivos pase crudo
-}));
-
-// Gamification Service
+app.use('/api/library', createProxyMiddleware({ target: SERVICES.library, changeOrigin: true }));
 app.use('/api/gamification', createProxyMiddleware({ target: SERVICES.gamification, ...proxyOptions }));
-
-// Social Service
 app.use('/api/social', createProxyMiddleware({ target: SERVICES.social, ...proxyOptions }));
+app.use('/api/conversations', createProxyMiddleware({ target: SERVICES.chat, ...proxyOptions }));
+app.use('/api/messages', createProxyMiddleware({ target: SERVICES.chat, ...proxyOptions }));
 
-
-// =================================================================
-// 5. PARSERS GLOBALES (Solo para rutas que maneje el Gateway directamente)
-// =================================================================
-// Como los proxies ya capturaron las rutas /api/*, esto solo afectará a otras rutas
+// 5. PARSERS (Solo para lo que no es Proxy)
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// 404 Handler
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Endpoint not found in Gateway' });
 });
 
-app.listen(PORT, () => {
-  console.log(`
-╔════════════════════════════════════════════════╗
-║       🚀 API GATEWAY RUNNING (PROXY MODE)      ║
-╠════════════════════════════════════════════════╣
-║  Port: ${PORT}                                    ║
-║  Mode: http-proxy-middleware                   ║
-╚════════════════════════════════════════════════╝
-  `);
+// 6. INICIAR SERVIDOR
+const server = app.listen(PORT, () => {
+  console.log(`🚀 API GATEWAY RUNNING ON PORT ${PORT}`);
 });
 
+// Habilitar Upgrade de WebSockets manualmente
+server.on('upgrade', (req, socket, head) => {
+    // Solo hacemos upgrade si la petición es para socket.io
+    if (req.url.startsWith('/socket.io')) {
+        socketProxy.upgrade(req, socket, head);
+    } else {
+        socket.destroy();
+    }
+});
 /*
 
 const express = require('express');

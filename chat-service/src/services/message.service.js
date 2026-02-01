@@ -1,4 +1,5 @@
 // src/services/message.service.js
+// src/services/message.service.js
 const { prisma } = require('../config/database');
 
 /**
@@ -6,15 +7,26 @@ const { prisma } = require('../config/database');
  */
 const createMessage = async (conversationId, senderId, receiverId, content, replyToId = null) => {
   try {
+    const data = {
+      content,
+      senderId,
+      receiverId,
+      messageType: 'TEXT',
+      // Conectar con la conversación existente usando su ID
+      conversation: {
+        connect: { id: parseInt(conversationId) }
+      }
+    };
+
+    // Si hay respuesta a otro mensaje, conectarlo también
+    if (replyToId) {
+      data.replyTo = {
+        connect: { id: parseInt(replyToId) }
+      };
+    }
+
     const message = await prisma.message.create({
-      data: {
-        conversationId,
-        senderId,
-        receiverId,
-        content,
-        replyToId,
-        messageType: 'TEXT',
-      },
+      data,
       include: {
         replyTo: {
           select: {
@@ -41,7 +53,7 @@ const getConversationMessages = async (conversationId, limit = 50, offset = 0) =
   try {
     const messages = await prisma.message.findMany({
       where: {
-        conversationId,
+        conversationId: parseInt(conversationId),
         isDeleted: false,
       },
       include: {
@@ -55,13 +67,13 @@ const getConversationMessages = async (conversationId, limit = 50, offset = 0) =
         },
       },
       orderBy: {
-        createdAt: 'desc',
+        createdAt: 'asc', // Orden cronológico (más viejos arriba, nuevos abajo para el chat)
       },
       take: limit,
       skip: offset,
     });
 
-    return messages.reverse(); // Más reciente al final
+    return messages; 
   } catch (error) {
     console.error('❌ Error getting messages:', error);
     throw error;
@@ -76,18 +88,18 @@ const markMessageAsRead = async (messageId, userId) => {
     // Verificar que el mensaje sea para este usuario
     const message = await prisma.message.findFirst({
       where: {
-        id: messageId,
+        id: parseInt(messageId),
         receiverId: userId,
         isRead: false,
       },
     });
 
     if (!message) {
-      return null; // Ya está leído o no existe
+      return null; 
     }
 
     return await prisma.message.update({
-      where: { id: messageId },
+      where: { id: parseInt(messageId) },
       data: {
         isRead: true,
         readAt: new Date(),
@@ -106,7 +118,7 @@ const markAllMessagesAsRead = async (conversationId, userId) => {
   try {
     return await prisma.message.updateMany({
       where: {
-        conversationId,
+        conversationId: parseInt(conversationId),
         receiverId: userId,
         isRead: false,
       },
@@ -128,7 +140,7 @@ const getUnreadCount = async (conversationId, userId) => {
   try {
     return await prisma.message.count({
       where: {
-        conversationId,
+        conversationId: parseInt(conversationId),
         receiverId: userId,
         isRead: false,
         isDeleted: false,
@@ -145,10 +157,9 @@ const getUnreadCount = async (conversationId, userId) => {
  */
 const deleteMessage = async (messageId, userId) => {
   try {
-    // Verificar que el mensaje sea del usuario
     const message = await prisma.message.findFirst({
       where: {
-        id: messageId,
+        id: parseInt(messageId),
         senderId: userId,
       },
     });
@@ -158,7 +169,7 @@ const deleteMessage = async (messageId, userId) => {
     }
 
     return await prisma.message.update({
-      where: { id: messageId },
+      where: { id: parseInt(messageId) },
       data: {
         isDeleted: true,
         deletedAt: new Date(),
@@ -177,7 +188,7 @@ const searchMessages = async (conversationId, searchTerm, limit = 20) => {
   try {
     return await prisma.message.findMany({
       where: {
-        conversationId,
+        conversationId: parseInt(conversationId),
         content: {
           contains: searchTerm,
         },

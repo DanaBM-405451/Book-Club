@@ -1,16 +1,15 @@
-// src/socket/middlewares/socketAuth.middleware.js
 const axios = require('axios');
 
-/**
- * Middleware de autenticación para Socket.io
- * Verifica el token JWT con auth-service
- */
 const socketAuthMiddleware = async (socket, next) => {
   try {
-    const token = socket.handshake.auth.token || 
-                  socket.handshake.headers.authorization?.split(' ')[1];
+    // 🔍 Búsqueda exhaustiva del token
+    const token = 
+        socket.handshake.auth?.token || 
+        socket.handshake.query?.token || 
+        socket.handshake.headers?.authorization?.split(' ')[1];
     
     if (!token) {
+      console.error('❌ Socket Auth: Token no encontrado en handshake');
       return next(new Error('Authentication error: Token not provided'));
     }
 
@@ -29,19 +28,15 @@ const socketAuthMiddleware = async (socket, next) => {
       socket.user = response.data.data.user;
       socket.userId = socket.user.id;
       
-      console.log(`✅ Socket authenticated: ${socket.user.username || socket.user.email} (${socket.userId})`);
+      // console.log(`✅ Socket authenticated: ${socket.user.username}`);
       next();
     } catch (error) {
-      if (error.response?.status === 401) {
-        return next(new Error('Authentication error: Invalid or expired token'));
-      }
-      
       console.error('❌ Auth-service error:', error.message);
-      return next(new Error('Authentication error: Service unavailable'));
+      return next(new Error('Authentication error: Invalid Token'));
     }
   } catch (error) {
-    console.error('❌ Socket authentication failed:', error.message);
-    next(new Error('Authentication error'));
+    console.error('❌ Socket middleware failed:', error.message);
+    next(new Error('Internal Authentication Error'));
   }
 };
 

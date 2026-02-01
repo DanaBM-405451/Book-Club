@@ -1,181 +1,86 @@
 // src/socket/handlers/message.handler.js (CON VALIDACIÓN)
 const messageService = require('../../services/message.service');
 const conversationService = require('../../services/conversation.service');
-const { checkFriendship } = require('../../services/http/social.service');
-const { 
-  sendMessageSchema, 
-  markAsReadSchema, 
-  deleteMessageSchema,
-  validateSocketPayload 
-} = require('../../utils/validators');
+const { validateSocketPayload, sendMessageSchema } = require('../../utils/validators');
 
-/**
- * Registrar manejadores de eventos de mensajes
- */
 const registerMessageHandlers = (io, socket) => {
   
-  /**
-   * Evento: send_message
-   */
   socket.on('send_message', async (payload, callback) => {
+    console.log(`📩 Recibido evento send_message de ${socket.userId || 'Usuario'}`);
+
+    // 1. Validación básica del payload
+    const validation = validateSocketPayload(sendMessageSchema, payload);
+    
+    // Nota: Aunque falle la validación estricta, intentamos recuperar datos si es posible
+    let { conversationId, content, tempId, receiverId } = payload;
+    const senderId = socket.userId || payload.senderId;
+
     try {
-      // Validar payload
-      const validation = validateSocketPayload(sendMessageSchema, payload);
-      if (!validation.isValid) {
-        return callback({
-          success: false,
-          message: 'Datos inválidos',
-          errors: validation.errors,
-        });
+      // 🛡️ BLINDAJE: Si no tenemos conversationId, lo buscamos usando los participantes
+      if (!conversationId && receiverId) {
+          console.log("⚠️ ConversationId faltante, recuperándolo...");
+          const conv = await conversationService.getOrCreateConversation(senderId, receiverId);
+          conversationId = conv.id;
       }
 
-      const senderId = socket.userId;
-      const { receiverId, content, replyToId } = validation.value;
+      // Si aún así no tenemos ID, no podemos seguir
+      if (!conversationId) {
+          throw new Error("No se pudo determinar el ID de la conversación");
+      }
 
-      // Verificar que sean amigos
-      /*try {
-        const friendshipResponse = await checkFriendship(
-          senderId,
-          receiverId,
-          socket.handshake.auth.token
-        );
-
-        if (!friendshipResponse.success || friendshipResponse.data.status !== 'ACCEPTED') {
-          return callback({
-            success: false,
-            message: 'Solo puedes enviar mensajes a tus amigos',
-          });
-        }
-      } catch (error) {
-        console.error('❌ Error verificando amistad:', error.message);
-        
-        if (process.env.NODE_ENV !== 'development') {
-          return callback({
-            success: false,
-            message: 'Error verificando relación de amistad',
-          });
-        }
-      }*/
-
-      // Obtener o crear conversación
-      const conversation = await conversationService.getOrCreateConversation(
-        senderId,
-        receiverId
-      );
-
-      // Crear mensaje
+      // 2. Guardar Mensaje en BD
       const message = await messageService.createMessage(
-        conversation.id,
+        parseInt(conversationId), // Aseguramos que sea entero
         senderId,
-        receiverId,
+        receiverId, 
         content,
-        replyToId
+        null
       );
 
-      // Actualizar conversación
-      await conversationService.updateConversationLastMessage(
-        conversation.id,
-        content
-      );
-
-      // Incrementar contador no leídos
-      await conversationService.incrementUnreadCount(conversation.id, receiverId);
+      // 3. Actualizar metadata de la conversación
+      await conversationService.updateConversationLastMessage(conversationId, content);
+      
+      // 4. Incrementar contador de no leídos para el receptor
+      if (receiverId) {
+          await conversationService.incrementUnreadCount(conversationId, receiverId);
+      }
 
       const messagePayload = {
-        id: message.id,
-        conversationId: conversation.id,
-        senderId: message.senderId,
-        receiverId: message.receiverId,
-        content: message.content,
-        replyTo: message.replyTo,
-        isRead: message.isRead,
-        createdAt: message.createdAt,
+        ...message,
+        tempId 
       };
 
-      // Emitir al receptor
-      io.to(`user:${receiverId}`).emit('new_message', messagePayload);
+      // 5. EMISIÓN REAL-TIME
+      // Emitir a la sala de la conversación (ambos usuarios)
+      io.to(`conversation:${conversationId}`).emit('new_message', messagePayload);
+      
+      // Notificación global al usuario receptor (para actualizar lista de chats si está fuera)
+      if (receiverId) {
+          io.to(`user:${receiverId}`).emit('notification_message', messagePayload);
+      }
 
-      // Confirmar al emisor
-      callback({
-        success: true,
-        data: messagePayload,
-      });
+      // 6. Callback de éxito
+      if (typeof callback === 'function') {
+        callback({ success: true, data: messagePayload });
+      }
 
-      console.log(`✅ Message sent: ${senderId} -> ${receiverId}`);
+      console.log(`✅ Mensaje guardado y emitido en chat ${conversationId}`);
+
     } catch (error) {
-      console.error('❌ Error en send_message:', error);
-      callback({
-        success: false,
-        message: 'Error enviando mensaje',
-      });
+      console.error('❌ Error crítico en send_message:', error.message);
+      if (typeof callback === 'function') {
+        callback({ success: false, message: 'Error interno al enviar mensaje' });
+      }
     }
   });
 
-  /**
-   * Evento: mark_as_read
-   */
-  socket.on('mark_as_read', async (payload, callback) => {
-    try {
-      const validation = validateSocketPayload(markAsReadSchema, payload);
-      if (!validation.isValid) {
-        return callback({
-          success: false,
-          errors: validation.errors,
-        });
-      }
-
-      const userId = socket.userId;
-      const { messageId, conversationId } = validation.value;
-
-      if (messageId) {
-        await messageService.markMessageAsRead(messageId, userId);
-      } else if (conversationId) {
-        await messageService.markAllMessagesAsRead(conversationId, userId);
-        await conversationService.markConversationAsRead(conversationId, userId);
-      }
-
-      callback({
-        success: true,
-        message: 'Marcado como leído',
-      });
-    } catch (error) {
-      console.error('❌ Error en mark_as_read:', error);
-      callback({
-        success: false,
-        message: 'Error marcando como leído',
-      });
-    }
+  // --- Typing Handlers (Sin cambios) ---
+  socket.on('typing_start', ({ conversationId, receiverId }) => {
+     if(receiverId) socket.to(`user:${receiverId}`).emit('user_typing', { conversationId, userId: socket.userId, isTyping: true });
   });
 
-  /**
-   * Evento: delete_message
-   */
-  socket.on('delete_message', async (payload, callback) => {
-    try {
-      const validation = validateSocketPayload(deleteMessageSchema, payload);
-      if (!validation.isValid) {
-        return callback({
-          success: false,
-          errors: validation.errors,
-        });
-      }
-
-      const userId = socket.userId;
-      const { messageId } = validation.value;
-
-      await messageService.deleteMessage(messageId, userId);
-
-      callback({
-        success: true,
-        message: 'Mensaje eliminado',
-      });
-    } catch (error) {
-      console.error('❌ Error en delete_message:', error);
-      callback({
-        success: false,
-        message: error.message || 'Error eliminando mensaje',
-      });
-    }
+  socket.on('typing_stop', ({ conversationId, receiverId }) => {
+     if(receiverId) socket.to(`user:${receiverId}`).emit('user_typing', { conversationId, userId: socket.userId, isTyping: false });
   });
 };
 

@@ -1,6 +1,7 @@
 
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/database');
+const axios = require('axios'); 
 const {
   generateAccessToken,
   generateRefreshToken,
@@ -41,12 +42,12 @@ class AuthService {
         username,
         password: hashedPassword,
         role: 'USER',
-        nombre,
+        /*nombre,
         apellido,
         edad,
         genero,
         pais,
-        ciudad
+        ciudad*/
         
       },
       select: {
@@ -58,9 +59,35 @@ class AuthService {
         createdAt: true
       }
     });
+
+    try {
+      const userServiceUrl = process.env.USER_SERVICE_URL || 'http://localhost:3002';
+      
+      await axios.post(`${userServiceUrl}/api/users/profile/create`, {
+        userId: user.id, 
+        username: user.username,
+        nombre,
+        apellido,
+        edad,
+        pais,
+        ciudad
+      });
+      
+      console.log(`✅ Perfil solicitado para usuario ${user.id}`);
+
+    } catch (error) {
+      // ⚠️ IMPORTANTE: Si falla la creación del perfil, ¿qué hacemos?
+      // Opción A: Borrar el usuario de Auth (Rollback manual) para que intente de nuevo.
+      console.error("❌ Error creando perfil en user-service:", error.message);
+      
+      // Rollback: Borramos el usuario de Auth para mantener consistencia
+      await prisma.user.delete({ where: { id: user.id } });
+      throw new Error('ERROR_CREATING_PROFILE_SERVICE_UNAVAILABLE');
+    }
     
     return user;
   }
+    
 
   /**
    * Login de usuario

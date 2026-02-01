@@ -33,18 +33,19 @@ router.get('/admin/stats', authenticate, requireAdmin, userController.getAdminSt
 // RUTAS PÚBLICAS (sin autenticación)
 // ============================================
 
-//  (agregar antes de las rutas existentes)
-router.get('/search', userController.searchUsers); // Sin auth
-router.post('/batch', userController.getBatchProfiles); // Sin auth
+router.get('/search', userController.searchUsers);
 
+// ✅ ESTA ES LA RUTA CORRECTA (Renombrada a /profiles/batch para ser más clara)
+// Usamos .bind para asegurar el contexto del controlador
+router.post('/profiles/batch', userController.getProfilesBatch.bind(userController));
 
-//  Las rutas específicas DEBEN ir ANTES de las rutas con parámetros
 router.get('/avatars/default', userController.getDefaultAvatars);
-router.post('/batch', userController.getProfilesBatch.bind(userController));
 
 // ============================================
 // RUTAS PROTEGIDAS (requieren autenticación)
 // ============================================
+
+
 
 //  Rutas específicas primero
 router.get('/profile', authenticate, userController.getProfile);
