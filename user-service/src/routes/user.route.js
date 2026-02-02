@@ -52,7 +52,7 @@ router.get('/profile', authenticate, userController.getProfile);
 router.put('/profile', authenticate, updateProfileValidation, userController.updateProfile);
 router.post('/profile/avatar', authenticate, upload.single('avatar'), userController.uploadAvatar);
 router.put('/profile/avatar/default', authenticate, userController.selectDefaultAvatar);
-
+router.post('/activity', authenticate, userController.logActivity.bind(userController));
 router.get('/notifications/settings', authenticate, userController.getNotificationSettings);
 router.put('/notifications/settings', authenticate, updateNotificationSettingsValidation, userController.updateNotificationSettings);
 

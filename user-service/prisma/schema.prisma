@@ -54,6 +54,14 @@ model Profile {
   showLocation    Boolean   @default(false) @map("show_location")
   showStats       Boolean   @default(true) @map("show_stats")
   showReadingActivity    Boolean  @default(true)
+
+  // --- RACHAS Y GAMIFICATION ---
+  currentStreak    Int       @default(0) @map("current_streak")
+  longestStreak    Int       @default(0) @map("longest_streak")
+  lastActivityDate DateTime? @map("last_activity_date")
+
+  // Relación con el historial
+  activities       DailyActivity[]
   
   // Timestamps
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -100,6 +108,20 @@ model DeviceToken {
 
   @@index([userId])
   @@map("device_tokens")
+}
+
+// --- NUEVO MODELO: Historial de Actividad Diaria ---
+model DailyActivity {
+  id        Int      @id @default(autoincrement())
+  userId    String   @map("user_id")
+  date      DateTime @db.Date // Guardamos solo la fecha (YYYY-MM-DD)
+  count     Int      @default(1) // Cuantas acciones hizo ese día (opcional, para intensidad de color)
+
+  profile   Profile  @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@unique([userId, date]) // Un registro por usuario por día
+  @@index([userId])
+  @@map("daily_activities")
 }
 
 enum AvatarType {

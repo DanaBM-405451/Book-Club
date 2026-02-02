@@ -346,6 +346,24 @@ class UserController {
   }
 
   /**
+   * POST /api/users/activity
+   * Registrar actividad diaria (Heartbeat)
+   */
+  async logActivity(req, res, next) {
+    try {
+      const userId = req.user.userId;
+      const result = await userService.logDailyActivity(userId);
+      
+      res.json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/users/batch
    * Obtener múltiples perfiles de usuarios
    * Body: { userIds: ["uuid1", "uuid2", ...] }
@@ -495,6 +513,8 @@ async getAdminStats(req, res, next) {
   }
   
 }
+
+
 
 module.exports = new UserController();
 

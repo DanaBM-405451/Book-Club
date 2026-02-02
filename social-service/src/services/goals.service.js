@@ -287,6 +287,7 @@ module.exports = new GoalsService();
 
 const { prisma } = require('../config/database');
 const externalService = require('./external.service');
+const { notifyActivity } = require('../utils/gamification.utils');
 
 class GoalsService {
   /**
@@ -512,48 +513,35 @@ class GoalsService {
     }
   }
 
-  /**
+ /**
    * Completar una meta
    */
   async completeGoal(groupId, goalId, userId, token) {
     try {
-      // Verificar que el usuario es admin
-      const membership = await prisma.groupMember.findUnique({
-        where: {
-          groupId_userId: { groupId, userId }
-        }
-      });
-
-      if (!membership || membership.role !== 'ADMIN') {
-        throw new Error('Solo el administrador puede completar metas');
-      }
+      // ... (verificaciones de admin existentes) ...
+       const membership = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId, userId } } });
+       if (!membership || membership.role !== 'ADMIN') throw new Error('Solo el administrador puede completar metas');
 
       // Marcar como completada
-      // ✅ CORRECCIÓN 2: Usar 'readingGoal', NO 'groupGoal'
       const goal = await prisma.readingGoal.update({ 
         where: { id: goalId },
-        data: {
-          status: 'COMPLETED',
-          updatedAt: new Date()
-        }
+        data: { status: 'COMPLETED', updatedAt: new Date() }
       });
 
       // Otorgar XP a todos los miembros del grupo
       try {
-        const members = await prisma.groupMember.findMany({
-          where: { groupId }
-        });
+        const members = await prisma.groupMember.findMany({ where: { groupId } });
 
         for (const member of members) {
-          await externalService.awardXP(
-            member.userId,
-            30,
-            'Completar meta de grupo',
-            token
-          );
+          // 1. Dar XP (Tu lógica actual)
+          await externalService.awardXP(member.userId, 30, 'Completar meta de grupo', token);
+          
+          // ✅ 2. REGISTRAR ACTIVIDAD EN EL CALENDARIO
+          // Esto pintará el cuadrito verde en el perfil de cada miembro
+          await notifyActivity(member.userId);
         }
       } catch (error) {
-        console.log('Error otorgando XP:', error.message);
+        console.log('Error en gamificación masiva:', error.message);
       }
 
       return goal;

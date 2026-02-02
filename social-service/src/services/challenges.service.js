@@ -2,6 +2,7 @@
 
 const { prisma } = require('../config/database');
 const externalService = require('./external.service');
+const { notifyActivity } = require('../utils/gamification.utils');
 
 class ChallengesService {
   /**
@@ -251,13 +252,8 @@ class ChallengesService {
   async updateProgress(groupId, challengeId, userId, currentPage, token) {
     try {
       // Obtener el reto
-      const challenge = await prisma.groupChallenge.findUnique({
-        where: { id: challengeId }
-      });
-
-      if (!challenge || challenge.groupId !== groupId) {
-        throw new Error('Reto no encontrado');
-      }
+      const challenge = await prisma.groupChallenge.findUnique({ where: { id: challengeId } });
+       if (!challenge || challenge.groupId !== groupId) throw new Error('Reto no encontrado');
 
       if (currentPage < 0 || currentPage > challenge.totalPages) {
         throw new Error(`La página debe estar entre 0 y ${challenge.totalPages}`);
@@ -289,18 +285,19 @@ class ChallengesService {
         }
       });
 
+      // ✅ REGISTRAR ACTIVIDAD SIEMPRE QUE AVANCE
+      // Si leyó páginas, cuenta para la racha
+      if (currentPage > participation.currentPage) {
+          await notifyActivity(userId);
+      }
+
       // Si acaba de completar el reto, otorgar XP bonus
       if (!wasCompleted && isNowCompleted) {
         try {
-          await externalService.awardXP(
-            userId,
-            50,
-            'Completar reto de lectura',
-            token
-          );
-        } catch (error) {
-          console.log('Error otorgando XP:', error.message);
-        }
+          await externalService.awardXP(userId, 50, 'Completar reto de lectura', token);
+          // ✅ (Opcional) Registrar otra actividad extra por completar
+          await notifyActivity(userId); 
+        } catch (error) { console.log('Error otorgando XP:', error.message); }
       }
 
       return updated;

@@ -60,12 +60,23 @@ class UserService {
     return profile;
   }
 
-  /**
-   * OBTENER PERFIL PROPIO
+ /**
+   * OBTENER PERFIL PROPIO (Actualizado para incluir actividad)
    */
   async getProfile(userId) {
     let profile = await prisma.profile.findUnique({
-      where: { userId }
+      where: { userId },
+      include: {
+        // ✅ INCLUIR ACTIVIDAD (Últimos 365 días para el calendario)
+        activities: {
+            where: {
+                date: {
+                    gte: new Date(new Date().setFullYear(new Date().getFullYear() - 1))
+                }
+            },
+            orderBy: { date: 'asc' }
+        }
+      }
     });
     
     if (!profile) {
@@ -98,6 +109,8 @@ class UserService {
       notificationSettings
     };
   }
+
+  
 
   /**
    * OBTENER PERFIL PÚBLICO
@@ -192,6 +205,106 @@ class UserService {
     });
     
     return updatedProfile;
+  }
+
+  /**
+   * ✅ NUEVA FUNCIÓN: Registrar actividad diaria
+   * Llama a esto cuando el usuario entre a la app o lea un libro.
+   */
+  async logDailyActivity(userId) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Normalizar a medianoche
+
+    const profile = await prisma.profile.findUnique({ where: { userId } });
+    if (!profile) return;
+
+    const lastActivity = profile.lastActivityDate ? new Date(profile.lastActivityDate) : null;
+    if (lastActivity) lastActivity.setHours(0, 0, 0, 0);
+
+    let newStreak = profile.currentStreak;
+
+    // Lógica de Racha
+    if (!lastActivity) {
+        newStreak = 1; // Primera vez
+    } else if (lastActivity.getTime() === today.getTime()) {
+        // Ya registró hoy, no cambiamos la racha
+    } else {
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        
+        if (lastActivity.getTime() === yesterday.getTime()) {
+            newStreak += 1; // Racha continua
+        } else {
+            newStreak = 1; // Racha rota
+        }
+
+        try {
+      // Intentar guardar en el calendario
+      await prisma.dailyActivity.upsert({
+        where: {
+          userId_date: { userId, date: today }
+        },
+        update: { count: { increment: 1 } },
+        create: { userId, date: today, count: 1 }
+      });
+    } catch (error) {
+      // ✅ FIX: Si hay conflicto (P2002) o error de concurrencia, lo ignoramos.
+      // Significa que otro request paralelo ya registró la actividad.
+      if (error.code === 'P2002') {
+         console.log(`⚠️ Actividad ya registrada hoy para ${userId} (concurrencia resuelta)`);
+         return { currentStreak: newStreak };
+      }
+      throw error; // Otros errores sí los lanzamos
+    }
+    try {
+      // Intentar guardar en el calendario
+      await prisma.dailyActivity.upsert({
+        where: {
+          userId_date: { userId, date: today }
+        },
+        update: { count: { increment: 1 } },
+        create: { userId, date: today, count: 1 }
+      });
+    } catch (error) {
+      // ✅ FIX: Si hay conflicto (P2002) o error de concurrencia, lo ignoramos.
+      // Significa que otro request paralelo ya registró la actividad.
+      if (error.code === 'P2002') {
+         console.log(`⚠️ Actividad ya registrada hoy para ${userId} (concurrencia resuelta)`);
+         return { currentStreak: newStreak };
+      }
+      throw error; // Otros errores sí los lanzamos
+    }
+
+    return { currentStreak: newStreak };
+   }
+
+    // Actualizar Perfil
+    await prisma.profile.update({
+        where: { userId },
+        data: {
+            currentStreak: newStreak,
+            longestStreak: Math.max(newStreak, profile.longestStreak),
+            lastActivityDate: new Date() // Guardamos fecha con hora actual
+        }
+    });
+
+    // Guardar en el calendario (Upsert: Crear o Incrementar)
+    await prisma.dailyActivity.upsert({
+        where: {
+            userId_date: {
+                userId,
+                date: today
+            }
+        },
+        update: { count: { increment: 1 } },
+        create: {
+            userId,
+            date: today,
+            count: 1
+        }
+    });
+
+    return { currentStreak: newStreak };
   }
 
   /**
