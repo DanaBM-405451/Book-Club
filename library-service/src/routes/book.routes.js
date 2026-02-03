@@ -45,6 +45,7 @@ router.post(
 // =====================================================
 
 // 📖 Obtener un libro
+router.get('/books/genres', bookController.getGenres);
 // (IMPORTANTE: Esta ruta debe ir después de /admin/stats y /stats)
 router.get('/books/:id', bookController.getUserBook);
 

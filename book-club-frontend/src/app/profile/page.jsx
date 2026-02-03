@@ -305,77 +305,88 @@ export default function ProfilePage() {
         </header>
 
         <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-          <div className="card-vintage mb-6">
-            <div className="h-32 bg-gradient-to-r from-primary-400 via-secondary-400 to-accent-400 rounded-t-lg -mx-6 -mt-6 mb-6" />
+          <div className="card-vintage mb-6 bg-white rounded-xl shadow-sm border border-neutral-200 overflow-hidden">
+            {/* Portada */}
+            <div className="h-32 bg-gradient-to-r from-primary-400 via-secondary-400 to-accent-400" />
 
-            <div className="flex flex-col md:flex-row gap-6 items-start md:items-center -mt-20 md:-mt-16">
-              <div className="relative">
-                <div className="w-32 h-32 rounded-full border-4 border-white shadow-book overflow-hidden bg-neutral-200">
-                  <img
-                    src={getAvatarUrl()}
-                    alt={fullName}
-                    className="w-full h-full object-cover"
-                    onError={(e) => { e.target.src = '/avatars/avatar_01.png'; }}
-                  />
+            <div className="px-6 pb-6">
+              <div className="flex flex-col md:flex-row gap-6 items-start -mt-12">
+                
+                {/* Avatar */}
+                <div className="relative flex-shrink-0">
+                  <div className="w-32 h-32 rounded-full border-4 border-white shadow-md overflow-hidden bg-neutral-200">
+                    <img
+                      src={getAvatarUrl()}
+                      alt={fullName}
+                      className="w-full h-full object-cover"
+                      onError={(e) => { e.target.src = '/avatars/avatar_01.png'; }}
+                    />
+                  </div>
+                  <button
+                    onClick={() => setIsAvatarModalOpen(true)}
+                    className="absolute bottom-1 right-1 bg-white rounded-full p-2 shadow-md hover:shadow-lg transition-shadow border border-neutral-100"
+                    title="Cambiar foto"
+                  >
+                    <Camera className="w-4 h-4 text-neutral-600" />
+                  </button>
                 </div>
-                <button
-                  onClick={() => setIsAvatarModalOpen(true)}
-                  className="absolute bottom-0 right-0 bg-white rounded-full p-2 shadow-vintage hover:shadow-book transition-shadow"
-                >
-                  <Camera className="w-5 h-5 text-neutral-600" />
-                </button>
-              </div>
 
-              <div className="flex-1 w-full">
-                <div className="flex items-center gap-3 mb-2 justify-between">
-                    <div>
-                        <h1 className="text-3xl font-heading">{fullName}</h1>
-                        <p className="text-neutral-600 font-ui mb-2">
-                        {profile?.bio || 'Aún no has agregado una biografía'}
-                        </p>
+                {/* Info del Usuario */}
+                <div className="flex-1 w-full pt-14 md:pt-16"> {/* Ajuste de padding para alinear con la parte blanca */}
+                  
+                  {/* FILA 1: Nombre + Stats + Botón Editar */}
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
+                    
+                    {/* Nombre y Badges en la misma línea */}
+                    <div className="flex flex-wrap items-center gap-4">
+                        <h1 className="text-3xl font-heading text-neutral-900">{fullName}</h1>
+                        
+                        {/* Badges de Racha */}
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-orange-50 text-orange-600 rounded-full border border-orange-100" title="Racha actual">
+                                <Flame className="w-4 h-4 fill-orange-500" />
+                                <span className="font-bold text-sm">{profile?.currentStreak || 0}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-yellow-50 text-yellow-600 rounded-full border border-yellow-100" title="Récord histórico">
+                                <Trophy className="w-4 h-4 fill-yellow-500" />
+                                <span className="font-bold text-sm">{profile?.longestStreak || 0}</span>
+                            </div>
+                        </div>
                     </div>
 
-                    {/* ✅ STATS DE RACHA (NUEVO) */}
-                    <div className="hidden md:flex gap-4">
-                        <div className="text-center px-4">
-                            <div className="flex items-center gap-1 text-orange-500 font-bold text-2xl">
-                                <Flame className="w-6 h-6 fill-orange-500" /> {profile?.currentStreak || 0}
-                            </div>
-                            <p className="text-xs text-neutral-400 font-ui uppercase tracking-wider">Racha</p>
-                        </div>
-                        <div className="text-center px-4 border-l border-neutral-200">
-                            <div className="flex items-center gap-1 text-yellow-500 font-bold text-2xl">
-                                <Trophy className="w-6 h-6 fill-yellow-500" /> {profile?.longestStreak || 0}
-                            </div>
-                            <p className="text-xs text-neutral-400 font-ui uppercase tracking-wider">Récord</p>
-                        </div>
-                    </div>
-                </div>
+                    {/* Botón Editar (A la derecha) */}
+                    <button onClick={() => setIsEditModalOpen(true)} className="btn-outline text-sm py-1.5 px-4 flex items-center gap-2 self-start md:self-auto">
+                        <Edit2 className="w-4 h-4" /> Editar
+                    </button>
+                  </div>
 
-                <div className="flex flex-wrap gap-4 text-sm text-neutral-600 font-ui">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4" />
-                    <span>@{user?.username}</span>
+                  {/* FILA 2: Biografía */}
+                  <p className="text-neutral-600 font-ui mb-3 text-sm md:text-base max-w-3xl">
+                    {profile?.bio || 'Aún no has agregado una biografía...'}
+                  </p>
+
+                  {/* FILA 3: Metadata (Usuario, Email, Fecha) */}
+                  <div className="flex flex-wrap gap-4 text-sm text-neutral-500 font-ui border-t border-neutral-100 pt-3 mt-1">
+                    <div className="flex items-center gap-1.5">
+                      <User className="w-4 h-4" />
+                      <span>@{user?.username}</span>
+                    </div>
+                    <div className="hidden sm:block text-neutral-300">•</div>
+                    <div className="flex items-center gap-1.5">
+                      <Mail className="w-4 h-4" />
+                      <span>{user?.email}</span>
+                    </div>
+                    <div className="hidden sm:block text-neutral-300">•</div>
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="w-4 h-4" />
+                      <span>
+                        Miembro desde {new Date(profile?.createdAt).toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4" />
-                    <span>{user?.email}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    <span>
-                      Miembro desde{' '}
-                      {new Date(profile?.createdAt).toLocaleDateString('es-ES', {
-                        day: '2-digit', month: '2-digit', year: '2-digit',
-                      })}
-                    </span>
-                  </div>
+
                 </div>
               </div>
-              
-              <button onClick={() => setIsEditModalOpen(true)} className="btn-primary flex items-center gap-2 mt-4 md:mt-0">
-                <Edit2 className="w-4 h-4" /> Editar Perfil
-              </button>
             </div>
           </div>
 

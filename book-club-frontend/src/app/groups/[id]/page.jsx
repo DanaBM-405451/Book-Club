@@ -5,13 +5,14 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import Navbar from '@/components/layout/Navbar';
-import GroupHeader from '@/components/groups/GroupHeade'; 
+import GroupHeade from '@/components/groups/GroupHeade'; // Corrección del typo en tu import original
 import GroupForum from '@/components/groups/GroupForum';
 import GroupMembers from '@/components/groups/GroupMembers';
 import GroupProposals from '@/components/groups/GroupProposals';
 import GroupGoals from '@/components/groups/GroupGoals';
 import GroupChallenges from '@/components/groups/GroupChallenges';
-import { MessageSquare, Users, BookOpen, Target, Trophy, Lock } from 'lucide-react';
+import GroupSettings from '@/components/groups/GroupSettings'; // ✅ IMPORTAR NUEVO COMPONENTE
+import { MessageSquare, Users, BookOpen, Target, Trophy, Lock, Settings } from 'lucide-react'; // ✅ Importar Settings icon
 import api from '@/lib/api';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -36,13 +37,10 @@ export default function GroupDetailPage() {
 
   const loadGroup = async () => {
     try {
+      // Solo poner loading full si no tenemos datos previos para evitar parpadeos al actualizar
       if (!group) setLoading(true);
       
       const response = await api.get(`/api/social/groups/${groupId}`);
-      
-      // ✅ CORRECCIÓN CRÍTICA:
-      // El backend devuelve { success: true, data: { ...grupo } }
-      // Debemos guardar response.data.data, no response.data completo.
       setGroup(response.data.data || response.data);
 
     } catch (error) {
@@ -64,17 +62,13 @@ export default function GroupDetailPage() {
           toast.success('¡Te has unido!');
           loadGroup(); 
       } catch (e) {
-          if (e.response?.status === 400) {
-             // Si ya es miembro, recargamos para que la UI se entere
-             loadGroup();
-          }
+          if (e.response?.status === 400) loadGroup();
           toast.error(e.response?.data?.message || 'Error al unirse');
       }
   };
 
   if (!isAuthenticated) return null;
 
-  // Loader nativo (Sin componente externo que cause error)
   if (loading && !group) {
     return (
       <>
@@ -88,11 +82,14 @@ export default function GroupDetailPage() {
 
   if (!group) return null;
 
-  // ✅ Verificación de Membresía (Ahora funcionará porque 'group' tiene la estructura correcta)
   const isMember = 
     (group.userMembership !== null && group.userMembership !== undefined) || 
     (user && group.members?.some(m => String(m.userId) === String(user.id)));
 
+  // ✅ Verificar si es ADMIN del grupo
+  const isAdmin = group.userMembership?.role === 'ADMIN';
+
+  // ✅ Definir pestañas dinámicamente
   const tabs = [
     { id: 'forum', label: 'Foro', icon: MessageSquare, count: group.postsCount },
     { id: 'members', label: 'Miembros', icon: Users, count: group.membersCount },
@@ -100,6 +97,11 @@ export default function GroupDetailPage() {
     { id: 'goals', label: 'Metas', icon: Target, count: group.goalsCount },
     { id: 'challenges', label: 'Retos', icon: Trophy },
   ];
+
+  // ✅ Agregar pestaña de Configuración solo si es Admin
+  if (isAdmin) {
+    tabs.push({ id: 'settings', label: 'Configuración', icon: Settings });
+  }
 
   return (
     <>
@@ -109,7 +111,7 @@ export default function GroupDetailPage() {
       <div className="ml-20 min-h-screen bg-neutral-50">
         <div className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
           
-          <GroupHeader group={group} onUpdate={loadGroup} />
+          <GroupHeade group={group} onUpdate={loadGroup} />
 
           {/* BANNER NO MIEMBRO */}
           {!isMember && (
@@ -164,6 +166,11 @@ export default function GroupDetailPage() {
               {activeTab === 'proposals' && <GroupProposals groupId={groupId} group={group} isMember={isMember} onUpdate={loadGroup} />}
               {activeTab === 'goals' && <GroupGoals groupId={groupId} group={group} isMember={isMember} />}
               {activeTab === 'challenges' && <GroupChallenges groupId={groupId} group={group} isMember={isMember} />}
+              
+              {/* ✅ Renderizar Configuración solo si es Admin */}
+              {activeTab === 'settings' && isAdmin && (
+                <GroupSettings group={group} onUpdate={loadGroup} />
+              )}
             </div>
           </div>
         </div>

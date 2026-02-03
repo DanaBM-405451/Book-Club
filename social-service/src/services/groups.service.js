@@ -236,9 +236,13 @@ class GroupsService {
   /**
    * Actualizar configuración del grupo (solo admin)
    */
+  /**
+   * Actualizar configuración del grupo (solo admin)
+   * ✅ MEJORADO: Valida que el cupo no sea menor a los miembros actuales
+   */
   async updateGroup(groupId, userId, data) {
     try {
-      // Verificar que el usuario es admin
+      // 1. Verificar que el usuario es admin
       const membership = await prisma.groupMember.findUnique({
         where: {
           groupId_userId: {
@@ -249,19 +253,97 @@ class GroupsService {
       });
 
       if (!membership || membership.role !== 'ADMIN') {
-        throw new Error('Solo el administrador puede actualizar el grupo');
+        const error = new Error('Solo el administrador puede actualizar el grupo');
+        error.statusCode = 403; // Agregamos status para que el controlador lo use si quiere
+        throw error;
       }
 
-      // Actualizar el grupo
+      // 2. ✅ VALIDACIÓN NUEVA: Si se cambia el cupo, verificar que no rompa la lógica actual
+      if (data.maxMembers) {
+          const currentCount = await prisma.groupMember.count({ where: { groupId } });
+          if (data.maxMembers < currentCount) {
+              const error = new Error(`No puedes reducir el cupo a ${data.maxMembers} porque ya hay ${currentCount} miembros activos.`);
+              error.statusCode = 400;
+              throw error;
+          }
+      }
+
+      // 3. Actualizar el grupo
       return await prisma.group.update({
         where: { id: groupId },
         data: {
-          ...data,
+          name: data.name,
+          description: data.description,
+          isPublic: data.isPublic,
+          maxMembers: data.maxMembers,
           updatedAt: new Date(),
         },
       });
     } catch (error) {
       console.error('Error actualizando grupo:', error);
+      throw error; // Re-lanzamos para que el controlador lo capture
+    }
+  }
+
+  /**
+   * Remover un miembro del grupo
+   * ✅ MEJORADO: Evita auto-expulsión y valida existencia
+   */
+  async removeMember(groupId, adminId, targetUserId) {
+    try {
+      // 1. Verificar que quien hace la acción es admin
+      const adminMembership = await prisma.groupMember.findUnique({
+        where: {
+          groupId_userId: { groupId, userId: adminId }
+        }
+      });
+
+      if (!adminMembership || adminMembership.role !== 'ADMIN') {
+        const error = new Error('Solo el administrador puede expulsar miembros');
+        error.statusCode = 403;
+        throw error;
+      }
+
+      // 2. ✅ VALIDACIÓN NUEVA: Evitar auto-expulsión
+      // Los IDs pueden venir como string o number dependiendo de la base de datos, 
+      // usamos '==' para comparación laxa o String() para estar seguros.
+      if (String(adminId) === String(targetUserId)) {
+          const error = new Error('No puedes expulsarte a ti mismo. Usa la opción "Salir del grupo".');
+          error.statusCode = 400;
+          throw error;
+      }
+
+      // 3. Validar que el usuario objetivo realmente existe en el grupo
+      const targetMember = await prisma.groupMember.findUnique({
+          where: { groupId_userId: { groupId, userId: targetUserId } }
+      });
+
+      if (!targetMember) {
+          const error = new Error('El usuario no es miembro de este grupo');
+          error.statusCode = 404;
+          throw error;
+      }
+
+      // 4. No se puede expulsar al creador del grupo (Protección original manténida)
+      const group = await prisma.group.findUnique({
+        where: { id: groupId }
+      });
+
+      if (group.createdBy === targetUserId) {
+        throw new Error('No se puede expulsar al creador del grupo');
+      }
+
+      // 5. Remover miembro
+      await prisma.groupMember.delete({
+        where: {
+          groupId_userId: { groupId, userId: targetUserId }
+        }
+      });
+
+      return { message: 'Miembro expulsado correctamente' };
+
+    } catch (error) {
+      console.error('Error expulsando miembro:', error);
       throw error;
     }
   }

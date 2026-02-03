@@ -58,6 +58,12 @@ router.get('/:groupId/challenges/:challengeId/ranking', authMiddleware, challeng
 router.post('/:groupId/challenges/:challengeId/archive', authMiddleware, challengesController.archiveChallenge);
 router.post('/:groupId/challenges/:challengeId/reactivate', authMiddleware, challengesController.reactivateChallenge);
 
+// Actualizar grupo (Nombre, Privacidad, Cupo) - Solo Admin
+router.put('/:id', authMiddleware, groupsController.updateGroup);
+
+// Expulsar miembro - Solo Admin
+router.delete('/:id/members/:userId', authMiddleware, groupsController.removeMember);
+
 module.exports = router;
 
 /*const express = require('express');

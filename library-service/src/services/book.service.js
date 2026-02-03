@@ -455,6 +455,40 @@ class BookService {
       return { totalBooks: 0, totalReads: 0, latestBooks: [] };
     }
   }
+
+  /**
+   * Obtener lista de géneros únicos
+   */
+  async getUniqueGenres() {
+    try {
+      // Obtenemos todos los libros que tengan categoría
+      const books = await prisma.book.findMany({
+        where: { 
+            isDeleted: false,
+            categorias: { not: null }
+        },
+        select: { categorias: true }
+      });
+
+      // Extraemos, separamos por comas y limpiamos
+      const allGenres = new Set();
+      
+      books.forEach(book => {
+        if (book.categorias) {
+            // Google Books a veces manda "Fiction / Fantasy", otras veces "Fantasy"
+            // Vamos a limpiar un poco
+            const cats = book.categorias.split(',').map(c => c.trim());
+            cats.forEach(c => allGenres.add(c));
+        }
+      });
+
+      // Retornar ordenados alfabéticamente
+      return Array.from(allGenres).sort();
+    } catch (error) {
+      console.error('Error getting genres:', error);
+      return [];
+    }
+  }
 }
 
 module.exports = new BookService();

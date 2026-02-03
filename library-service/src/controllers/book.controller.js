@@ -142,6 +142,16 @@ class BookController {
       next(error);
     }
   }
+
+  // Agrega este método
+  async getGenres(req, res, next) {
+    try {
+      const genres = await bookService.getUniqueGenres();
+      res.json({ success: true, data: genres });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = new BookController();

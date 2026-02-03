@@ -268,10 +268,19 @@ export default function AddBookModal({ isOpen, onClose, onBookAdded }) {
               <div className="grid gap-4">
                   {googleResults.map((book) => (
                       <div key={book.id} onClick={() => setSelectedGoogleBook(selectedGoogleBook?.id === book.id ? null : book)} className={`flex gap-4 p-4 border-2 rounded-xl cursor-pointer transition-all ${selectedGoogleBook?.id === book.id ? 'border-primary-500 bg-primary-50' : 'border-neutral-100 hover:border-primary-300'}`}>
-                          <img src={book.volumeInfo.imageLinks?.thumbnail || ''} className="w-16 h-24 object-cover rounded bg-gray-200" alt="" />
-                          <div>
-                              <h3 className="font-bold text-gray-800">{book.volumeInfo.title}</h3>
-                              <p className="text-sm text-gray-600">{book.volumeInfo.authors?.join(', ')}</p>
+                         // ✅ MEJOR OPCIÓN (Con Fallback)
+                         <div className="flex-shrink-0">
+                          {info.imageLinks?.thumbnail ? (
+                            <img 
+                             src={isSelected ? highResThumb : info.imageLinks.thumbnail} 
+                             alt={info.title} 
+                             className="w-16 h-24 object-cover rounded bg-gray-200" 
+                            />
+                          ) : (
+                          <div className="w-16 h-24 bg-neutral-200 rounded flex items-center justify-center text-neutral-400">
+                            <BookOpen className="w-8 h-8" />
+                            </div>
+                          )}
                           </div>
                       </div>
                   ))}
